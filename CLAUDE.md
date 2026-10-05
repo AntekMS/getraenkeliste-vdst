@@ -64,6 +64,12 @@ Aufbau bisher:
   `pruefePasswort` prüft **zuerst** die Sperre (`PinSperre`, `login_fehlversuche`/`login_gesperrt_bis`),
   dann das Passwort; unbekannte/archivierte Person = dieselbe Meldung wie falsches Passwort.
   `anmelden` (`regenerate(true)`), `abmelden` (Session leeren), `person()` (nicht archiviert, sonst
+- „Angemeldet bleiben“: Cookie `gl_merken` = `<selector 24 hex>:<validator 64 hex>` (90 Tage, httponly, Lax, `secure` aus ConfigCookie),
+  DB nur `sha256(validator)` (`AnmeldeTokenModel::erzeuge/rotiere/loescheCookie/loescheFuerPerson`). Filter `angemeldet` stellt
+  ohne Session per `Anmeldung::ausCookieAnmelden` her (rotiert; archivierte Person → alle Tokens weg; falscher Validator → alle
+  Tokens der Person weg). **Redirects, die Cookies setzen/löschen, brauchen `->withCookies()`** (RedirectResponse ist eine neue
+  Response). Archivieren/Passwort-Reset müssen `loescheFuerPerson` + `merkCookieLoeschen` aufrufen. Tests setzen den Cookie über
+  `service('superglobals')->setCookie(...)`, nicht `$_COOKIE`.
   Abmeldung → Filter leitet zu `login`), `rollen()`.
 - `app/Filters/` — `angemeldet` (AnmeldungFilter, per Routengruppe in `Routes.php`, nicht global) und
   `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`); `csrf` bleibt global.

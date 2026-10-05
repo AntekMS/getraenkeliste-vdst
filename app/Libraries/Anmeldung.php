@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Libraries;
 
+use App\Models\AnmeldeTokenModel;
 use App\Models\PersonModel;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -15,6 +16,8 @@ final class Anmeldung
 {
     public const MELDUNG_FALSCH   = 'Benutzername oder Passwort falsch.';
     public const MELDUNG_GESPERRT = 'Zu viele Fehlversuche. Bitte in 5 Minuten erneut versuchen.';
+
+    public const MERK_COOKIE = 'gl_merken';
 
     private const DATUMSFORMAT = 'Y-m-d H:i:s';
 
@@ -63,6 +66,74 @@ final class Anmeldung
     {
         session()->regenerate(true);
         session()->set('person_id', $personId);
+    }
+
+    /**
+     * Stellt ohne Sitzung die Anmeldung aus dem Cookie `gl_merken` wieder her (Token wird rotiert).
+     * Archivierte Person: nicht angemeldet, ihre Tokens werden gelöscht. Ungültiges Cookie wird verworfen.
+     */
+    public function ausCookieAnmelden(?string $cookie): bool
+    {
+        if ($cookie === null || $cookie === '') {
+            return false;
+        }
+
+        $tokens  = new AnmeldeTokenModel();
+        $treffer = $tokens->rotiere($cookie, service('uhr')->jetzt());
+
+        if ($treffer === null) {
+            $this->merkCookieLoeschen();
+
+            return false;
+        }
+
+        $personen = new PersonModel();
+        $person   = $personen->find($treffer['person_id']);
+
+        if ($person === null || ! $personen->istAktiv($person)) {
+            $tokens->loescheFuerPerson($treffer['person_id']);
+            $this->merkCookieLoeschen();
+
+            return false;
+        }
+
+        $this->anmelden($treffer['person_id']);
+        $this->merkCookieSetzen($treffer['cookie']);
+
+        return true;
+    }
+
+    public function merkenEinrichten(int $personId): void
+    {
+        $this->merkCookieSetzen((new AnmeldeTokenModel())->erzeuge($personId, service('uhr')->jetzt()));
+    }
+
+    /**
+     * Abmelden am eigenen Gerät: nur das Token dieses Cookies wird gelöscht, das Cookie läuft ab.
+     */
+    public function merkenBeenden(?string $cookie): void
+    {
+        if ($cookie !== null && $cookie !== '') {
+            (new AnmeldeTokenModel())->loescheCookie($cookie);
+        }
+
+        $this->merkCookieLoeschen();
+    }
+
+    public function merkCookieLoeschen(): void
+    {
+        response()->deleteCookie(self::MERK_COOKIE);
+    }
+
+    private function merkCookieSetzen(string $wert): void
+    {
+        response()->setCookie([
+            'name'     => self::MERK_COOKIE,
+            'value'    => $wert,
+            'expire'   => AnmeldeTokenModel::GUELTIG_TAGE * 86400,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
     }
 
     public function abmelden(): void

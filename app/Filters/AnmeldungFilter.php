@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Filters;
 
+use App\Libraries\Anmeldung;
 use App\Models\PersonModel;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
@@ -18,17 +19,22 @@ class AnmeldungFilter implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null)
     {
-        $person = service('anmeldung')->person();
+        $anmeldung = service('anmeldung');
+        $person    = $anmeldung->person();
+
+        if ($person === null && $anmeldung->ausCookieAnmelden($request->getCookie(Anmeldung::MERK_COOKIE))) {
+            $person = $anmeldung->person();
+        }
 
         if ($person === null) {
-            return redirect()->to(site_url('login'));
+            return redirect()->to(site_url('login'))->withCookies();
         }
 
         if (! in_array('frei', (array) $arguments, true)) {
             $offen = (new PersonModel())->brauchtEinrichtung($person);
 
             if ($offen['passwort'] || $offen['pin']) {
-                return redirect()->to(site_url('konto/einrichten'));
+                return redirect()->to(site_url('konto/einrichten'))->withCookies();
             }
         }
 

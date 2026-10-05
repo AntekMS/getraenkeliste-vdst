@@ -12,10 +12,15 @@
                autocomplete="username" autocapitalize="none" required autofocus>
     </div>
 
-    <div class="mb-4">
+    <div class="mb-3">
         <label for="passwort" class="form-label"><strong>Passwort</strong></label>
         <input type="password" class="form-control" id="passwort" name="passwort"
                autocomplete="current-password" required>
+    </div>
+
+    <div class="form-check mb-4">
+        <input type="checkbox" class="form-check-input" id="merken" name="merken" value="1">
+        <label for="merken" class="form-check-label">Angemeldet bleiben</label>
     </div>
 
     <button type="submit" class="btn btn-vdst w-100">

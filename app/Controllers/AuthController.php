@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Libraries\Anmeldung;
 use CodeIgniter\HTTP\RedirectResponse;
 
 class AuthController extends BaseController
@@ -31,13 +32,19 @@ class AuthController extends BaseController
 
         $anmeldung->anmelden((int) $ergebnis['person']['id']);
 
-        return redirect()->to(site_url('buchen'));
+        if ($this->request->getPost('merken') !== null) {
+            $anmeldung->merkenEinrichten((int) $ergebnis['person']['id']);
+        }
+
+        return redirect()->to(site_url('buchen'))->withCookies();
     }
 
     public function logout(): RedirectResponse
     {
-        service('anmeldung')->abmelden();
+        $anmeldung = service('anmeldung');
+        $anmeldung->merkenBeenden($this->request->getCookie(Anmeldung::MERK_COOKIE));
+        $anmeldung->abmelden();
 
-        return redirect()->to(site_url('login'));
+        return redirect()->to(site_url('login'))->withCookies();
     }
 }

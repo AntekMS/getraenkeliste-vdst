@@ -84,7 +84,7 @@ class KontoController extends BaseController
 
         $this->speichere((int) $person['id'], $this->passwortDaten($passwort), true);
 
-        return redirect()->to(site_url('konto'))->with('success', 'Passwort geändert.');
+        return redirect()->to(site_url('konto'))->with('success', 'Passwort geändert.')->withCookies();
     }
 
     public function pinAendern(): RedirectResponse
@@ -160,6 +160,7 @@ class KontoController extends BaseController
 
         if ($passwortGeaendert) {
             (new AnmeldeTokenModel())->loescheFuerPerson($personId);
+            service('anmeldung')->merkCookieLoeschen();
             session()->regenerate(true);
         }
     }
