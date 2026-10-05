@@ -23,7 +23,14 @@ class RechtFilter implements FilterInterface
             return redirect()->to(site_url('login'));
         }
 
-        foreach ($arguments ?? [] as $aktion) {
+        // Fail closed: `recht` ohne Aktion ist ein Konfigurationsfehler und darf nie durchlassen.
+        if ($arguments === null || $arguments === []) {
+            return service('response')
+                ->setStatusCode(403)
+                ->setBody(view('errors/keine_berechtigung'));
+        }
+
+        foreach ($arguments as $aktion) {
             if (! Berechtigung::darf($anmeldung->rollen(), $aktion)) {
                 return service('response')
                     ->setStatusCode(403)

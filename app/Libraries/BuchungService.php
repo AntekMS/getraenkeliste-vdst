@@ -25,6 +25,19 @@ class BuchungService
     private const FORMAT         = 'Y-m-d H:i:s';
 
     /**
+     * Neue Vorgangs-ID (UUID v4) aus kryptografisch sicherem Zufall.
+     */
+    public static function neueVorgangId(): string
+    {
+        $b    = random_bytes(16);
+        $b[6] = chr((ord($b[6]) & 0x0f) | 0x40);
+        $b[8] = chr((ord($b[8]) & 0x3f) | 0x80);
+        $hex  = bin2hex($b);
+
+        return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20);
+    }
+
+    /**
      * @param list<array{artikel_id: int, menge: int}> $positionen
      *
      * @return array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool, storniert: bool}

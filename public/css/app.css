@@ -1036,3 +1036,72 @@ tfoot.table-light {
     color: var(--grau-600);
     font-size: .8rem;
 }
+
+/* Getränkeliste */
+.artikel-kachel {
+    background: var(--surface);
+    border: 1px solid var(--grau-200);
+    border-radius: var(--radius);
+    box-shadow: var(--schatten-sm);
+    padding: .75rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.artikel-kachel-name {
+    font-weight: 600;
+    color: var(--grau-900);
+}
+
+.artikel-kachel-einheit {
+    color: var(--grau-600);
+    font-size: .85rem;
+}
+
+.artikel-kachel-preis {
+    color: var(--vdst-rot-text);
+    font-weight: 600;
+    margin: .25rem 0 .5rem;
+}
+
+.artikel-kachel-steuerung {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+}
+
+.artikel-kachel-steuerung .btn {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+}
+
+.artikel-kachel-menge {
+    font-size: 1.25rem;
+    font-weight: 600;
+    min-width: 2rem;
+    text-align: center;
+}
+
+.artikel-kachel.hat-menge {
+    border-color: var(--vdst-rot);
+}
+
+.buchen-warenkorb {
+    background: var(--surface);
+    border: 1px solid var(--grau-200);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--schatten);
+    padding: 1rem;
+    max-width: 32rem;
+}
+
+.buchen-summe {
+    border-top: 1px solid var(--grau-200);
+    padding-top: .5rem;
+}
+
+.buchen-bestaetigung {
+    max-width: 32rem;
+}

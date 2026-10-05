@@ -18,5 +18,10 @@ $routes->group('', ['filter' => 'angemeldet'], static function (RouteCollection 
     $routes->get('konto', 'KontoController::index');
     $routes->post('konto/passwort', 'KontoController::passwortAendern');
     $routes->post('konto/pin', 'KontoController::pinAendern');
+});
+
+$routes->group('', ['filter' => ['angemeldet', 'recht:buchen']], static function (RouteCollection $routes): void {
     $routes->get('buchen', 'BuchenController::index');
+    $routes->post('buchen', 'BuchenController::buchen');
+    $routes->post('buchen/rueckgaengig', 'BuchenController::rueckgaengig');
 });

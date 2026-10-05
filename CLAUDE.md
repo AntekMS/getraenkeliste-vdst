@@ -82,7 +82,14 @@ Aufbau bisher:
 - `app/Filters/` — `angemeldet` (AnmeldungFilter, per Routengruppe in `Routes.php`, nicht global) und
   `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`); `csrf` bleibt global.
 - Routen: `GET/POST login`, `POST logout` (kein GET → 404), `/` → Redirect `buchen`,
-  `GET buchen` (Platzhalter, Task 10 ersetzt ihn). `AuthController`, `BuchenController`.
+  `GET buchen`, `POST buchen`, `POST buchen/rueckgaengig` (Filter `angemeldet` + `recht:buchen`). `AuthController`, `BuchenController`.
+- Buchen am eigenen Gerät (`BuchenController`): JSON-Endpunkte, CSRF per Header `X-CSRF-TOKEN` (ohne gültigen Token
+  `SecurityException` → 403; im Test fängt man die Exception). Body via `getJSON(true)`; `artikel_id`/`menge` werden
+  streng zu int gecastet (sonst 422 „Ungültige Position“). `konto` = `ich|couleur|bund`; `gebucht_von_id` immer die
+  angemeldete Person. Antworten tragen `csrf_hash`, Erfolg zusätzlich `naechste_vorgang_id`
+  (`BuchungService::neueVorgangId()`, UUID v4). Wiederholung eines stornierten Vorgangs → 200 `storniert:true`.
+  Rückgängig nur für `konto_id`/`gebucht_von_id` = angemeldete Person, sonst 403. `public/js/buchen.js` liest
+  Endpunkte/Vorgang-ID/Token aus `data-*` an `#buchen-app` (auch für das Tablet gedacht). `RechtFilter` ohne Argument → 403.
 - Pflichtseite/Konto (`KontoController`): `PersonModel::brauchtEinrichtung` (Passwort bei `passwort_wechsel_erzwingen`,
   PIN bei `pin_hash` NULL). Filter `angemeldet` leitet dann jede Route zu `konto/einrichten` um, außer Routen mit
   Filter-Argument `angemeldet:frei` (`konto/einrichten` GET/POST, `logout`). `GET konto`, `POST konto/passwort`,
