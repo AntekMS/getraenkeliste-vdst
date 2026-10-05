@@ -66,8 +66,13 @@
             const p = warenkorb.get(kachel.dataset.artikelId);
             const menge = p ? p.menge : 0;
             kachel.querySelector('.js-menge').textContent = String(menge);
-            kachel.querySelector('.js-minus').disabled = menge === 0;
+            kachel.querySelector('.js-minus').disabled = laeuft || menge === 0;
+            kachel.querySelector('.js-plus').disabled = laeuft;
             kachel.classList.toggle('hat-menge', menge > 0);
+        });
+        // Während einer Buchung ist der Warenkorb gesperrt, sonst ginge Hinzugefügtes beim Leeren verloren.
+        root.querySelectorAll('input[name="konto"]').forEach(function (radio) {
+            radio.disabled = laeuft;
         });
     }
 
@@ -104,16 +109,17 @@
             },
             body: JSON.stringify(daten)
         });
-        if (antwort.status === 403 && !(antwort.headers.get('Content-Type') || '').includes('application/json')) {
-            // CSRF-Token oder Sitzung abgelaufen: neu laden holt beides frisch
-            window.location.reload();
-            return null;
-        }
         let json = null;
         try {
             json = await antwort.json();
         } catch (e) {
             json = null;
+        }
+        // Eigene 403 des Controllers tragen ok:false; der CSRF-Fehler (Framework-JSON) nicht.
+        // Dann sind Token oder Sitzung abgelaufen: neu laden holt beides frisch.
+        if (antwort.status === 403 && !(json && json.ok === false)) {
+            window.location.reload();
+            return null;
         }
         if (json && json.csrf_hash) {
             csrfToken = json.csrf_hash;
@@ -191,6 +197,9 @@
     }
 
     root.addEventListener('click', function (ereignis) {
+        if (laeuft) {
+            return;
+        }
         const kachel = ereignis.target.closest('.artikel-kachel');
         if (kachel && ereignis.target.closest('.js-plus')) {
             aendere(kachel, 1);

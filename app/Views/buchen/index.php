@@ -88,5 +88,5 @@
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>
-<script src="<?= base_url('js/buchen.js') ?>?v=1"></script>
+<script src="<?= base_url('js/buchen.js') ?>?v=2"></script>
 <?= $this->endSection() ?>

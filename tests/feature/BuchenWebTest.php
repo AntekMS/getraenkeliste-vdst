@@ -131,6 +131,9 @@ final class BuchenWebTest extends DbTestCase
 
         $erste->assertStatus(200);
         $zweite->assertStatus(200);
+        $this->assertSame($this->json($erste)['vorgang_id'], $this->json($zweite)['vorgang_id']);
+        $this->assertSame($this->json($erste)['zusammenfassung'], $this->json($zweite)['zusammenfassung']);
+        $this->assertSame($this->json($erste)['summe_cent'], $this->json($zweite)['summe_cent']);
         $this->assertTrue($this->json($zweite)['ok']);
         $this->assertCount(1, $this->buchungen());
     }
@@ -262,6 +265,8 @@ final class BuchenWebTest extends DbTestCase
         $antwort = $this->senden($ich, 'buchen/rueckgaengig', ['vorgang_id' => $daten['vorgang_id']]);
 
         $antwort->assertStatus(403);
+        // buchen.js unterscheidet die eigene 403 (ok:false) vom Framework-CSRF-403 (ohne ok, Seite wird neu geladen).
+        $this->assertFalse($this->json($antwort)['ok']);
         $this->assertSame('Dieser Vorgang gehört nicht zu dir.', $this->json($antwort)['meldung']);
         $this->assertNull($this->buchungen()[0]['storniert_at']);
     }
