@@ -16,7 +16,7 @@ use InvalidArgumentException;
  * Buchen (idempotent über die vorgang_id) und Stornieren. Wer stornieren darf,
  * prüft der Controller; hier gelten nur Frist, Einfrierung und Doppel-Storno.
  */
-final class BuchungService
+class BuchungService
 {
     private const QUELLEN        = ['web', 'tablet'];
     private const MAX_POSITIONEN = 30;
@@ -27,7 +27,7 @@ final class BuchungService
     /**
      * @param list<array{artikel_id: int, menge: int}> $positionen
      *
-     * @return array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool}
+     * @return array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool, storniert: bool}
      */
     public function bucheVorgang(string $vorgangId, int $kontoId, ?int $gebuchtVonId, ?int $geraetId, string $quelle, array $positionen): array
     {
@@ -80,23 +80,24 @@ final class BuchungService
             ];
         }
 
+        $this->vorDemSchreiben($vorgangId);
+
         $jetzt = service('uhr')->jetzt()->format(self::FORMAT);
-        $db    = db_connect();
         $model = new BuchungModel();
 
-        $db->transBegin();
-
         try {
-            foreach ($zeilen as $zeile) {
-                $zeile['gebucht_at'] = $jetzt;
-                $model->insert($zeile);
-            }
+            $this->transaktion(static function () use ($zeilen, $model, $jetzt): void {
+                foreach ($zeilen as $zeile) {
+                    $zeile['gebucht_at'] = $jetzt;
 
-            $db->transCommit();
+                    if ($model->insert($zeile) === false) {
+                        throw new DatabaseException('Buchung konnte nicht gespeichert werden.');
+                    }
+                }
+            });
         } catch (DatabaseException $e) {
-            $db->transRollback();
-
             // Wettlauf: ein paralleler Request mit derselben vorgang_id war schneller.
+            // Rollback ist erfolgt; das gespeicherte Ergebnis (mit Besitzprüfung) beantwortet den Request.
             $bereitsGebucht = $this->wiederholung($vorgangId, $kontoId, $gebuchtVonId);
 
             if ($bereitsGebucht !== null) {
@@ -105,7 +106,6 @@ final class BuchungService
 
             throw $e;
         }
-
         return $this->ergebnis($this->zeilen($vorgangId), false);
     }
 
@@ -130,7 +130,7 @@ final class BuchungService
     /**
      * Nur nicht stornierte Positionen; null, wenn es keine gibt.
      *
-     * @return ?array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool}
+     * @return ?array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool, storniert: bool}
      */
     public function vorgang(string $vorgangId): ?array
     {
@@ -190,29 +190,56 @@ final class BuchungService
     }
 
     /**
+     * Alles oder nichts; die Bedingung `storniert_at IS NULL` fängt einen parallelen Storno ab.
+     *
      * @param list<int|string> $ids
      */
     private function markiere(array $ids, ?int $stornoVonId): void
     {
         $jetzt = service('uhr')->jetzt()->format(self::FORMAT);
-        $db    = db_connect();
-        $model = new BuchungModel();
 
+        $this->transaktion(static function () use ($ids, $stornoVonId, $jetzt): void {
+            foreach ($ids as $id) {
+                $builder = db_connect()->table('buchungen')
+                    ->where('id', (int) $id)
+                    ->where('storniert_at', null);
+                $builder->update(['storniert_at' => $jetzt, 'storniert_von_id' => $stornoVonId, 'storno_grund' => null, 'updated_at' => $jetzt]);
+
+                if (db_connect()->affectedRows() !== 1) {
+                    throw new BuchungAbgelehnt('Bereits storniert.');
+                }
+            }
+        });
+    }
+
+    /**
+     * Testnaht: läuft nach den Prüfungen, direkt vor der Buchungs-Transaktion.
+     */
+    protected function vorDemSchreiben(string $vorgangId): void
+    {
+    }
+
+    /**
+     * Transaktion, in der jeder fehlgeschlagene Query eine Exception wirft (CI4 wirft in
+     * Transaktionen sonst nicht und committet Teilergebnisse). Bei jedem Fehler: Rollback, Exception weiter.
+     */
+    private function transaktion(callable $arbeit): void
+    {
+        $db = db_connect();
+        $db->transException(true);
         $db->transBegin();
 
         try {
-            foreach ($ids as $id) {
-                $model->update((int) $id, ['storniert_at' => $jetzt, 'storniert_von_id' => $stornoVonId, 'storno_grund' => null]);
-            }
-
+            $arbeit();
             $db->transCommit();
-        } catch (DatabaseException $e) {
+        } catch (\Throwable $e) {
             $db->transRollback();
 
             throw $e;
+        } finally {
+            $db->transException(false);
         }
     }
-
     /**
      * Prüft Form und Mengen der Positionen und addiert doppelte Artikel.
      *
@@ -306,6 +333,7 @@ final class BuchungService
             'zusammenfassung' => self::zusammenfassung($positionen),
             'gebucht_at'      => $zeilen[0]['gebucht_at'],
             'wiederholt'      => $wiederholt,
+            'storniert'       => array_filter($zeilen, static fn (array $z): bool => $z['storniert_at'] === null) === [],
         ];
     }
 }

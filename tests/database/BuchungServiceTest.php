@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Database;
 
 use App\Libraries\BuchungAbgelehnt;
+use App\Libraries\BuchungService;
+use CodeIgniter\Database\Exceptions\DatabaseException;
 use App\Models\ArtikelModel;
 use Tests\Support\DbTestCase;
 
@@ -307,5 +309,94 @@ final class BuchungServiceTest extends DbTestCase
         $this->expectException(BuchungAbgelehnt::class);
         $this->expectExceptionMessage('Unbekannte Buchung.');
         service('buchungen')->storniereBuchung(99999, null);
+    }
+    public function test_fehlgeschlagener_insert_laesst_keine_zeile_zurueck(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        $spezi  = $this->artikelAnlegen(['name' => 'Spezi']);
+
+        try {
+            service('buchungen')->bucheVorgang(self::V1, $konto, 999999, null, 'web', [
+                ['artikel_id' => $helles, 'menge' => 1],
+                ['artikel_id' => $spezi, 'menge' => 1],
+            ]);
+            $this->fail('FK-Fehler erwartet');
+        } catch (DatabaseException) {
+            $this->assertTrue(true);
+        }
+
+        $this->seeNumRecords(0, 'buchungen', []);
+    }
+
+    public function test_wettlauf_rollt_teilzeilen_zurueck_und_antwortet_mit_gespeichertem_ergebnis(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        $spezi  = $this->artikelAnlegen(['name' => 'Spezi', 'preis_cent' => 200]);
+        $pos    = [['artikel_id' => $helles, 'menge' => 1], ['artikel_id' => $spezi, 'menge' => 1]];
+
+        // Ein „paralleler“ Request legt zwischen Prüfung und Transaktion die Spezi-Zeile an.
+        $service = $this->dienstMitKonkurrenz(self::V1, $konto, $konto, $spezi);
+        $r       = $service->bucheVorgang(self::V1, $konto, $konto, null, 'web', $pos);
+
+        $this->assertTrue($r['wiederholt']);
+        $this->seeNumRecords(1, 'buchungen', ['vorgang_id' => self::V1]);
+        $this->seeNumRecords(0, 'buchungen', ['vorgang_id' => self::V1, 'artikel_id' => $helles]);
+    }
+
+    public function test_wettlauf_mit_fremdem_konto_wird_abgelehnt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $fremd  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+
+        $service = $this->dienstMitKonkurrenz(self::V1, $fremd, $fremd, $helles);
+
+        try {
+            $service->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Ungültiger Vorgang.', $e->getMessage());
+        }
+
+        $this->seeNumRecords(1, 'buchungen', ['vorgang_id' => self::V1]);
+        $this->seeInDatabase('buchungen', ['vorgang_id' => self::V1, 'konto_id' => $fremd]);
+    }
+
+    public function test_wiederholung_eines_stornierten_vorgangs_meldet_storniert(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        $pos    = [['artikel_id' => $helles, 'menge' => 2]];
+
+        $erst = service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', $pos);
+        $this->assertFalse($erst['storniert']);
+
+        service('buchungen')->storniereVorgang(self::V1, $konto);
+
+        $zweit = service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', $pos);
+        $this->assertTrue($zweit['wiederholt']);
+        $this->assertTrue($zweit['storniert']);
+        $this->assertSame(300, $zweit['summe_cent']);
+        $this->assertSame('2× Helles – 3,00 €', $zweit['zusammenfassung']);
+    }
+
+    private function dienstMitKonkurrenz(string $vorgangId, int $kontoId, int $vonId, int $artikelId): BuchungService
+    {
+        return new class ($vorgangId, $kontoId, $vonId, $artikelId) extends BuchungService {
+            public function __construct(private string $v, private int $k, private int $von, private int $a)
+            {
+            }
+
+            protected function vorDemSchreiben(string $vorgangId): void
+            {
+                db_connect()->table('buchungen')->insert([
+                    'vorgang_id' => $this->v, 'konto_id' => $this->k, 'artikel_id' => $this->a, 'menge' => 1,
+                    'einzelpreis_cent' => 100, 'quelle' => 'web', 'gebucht_von_id' => $this->von,
+                    'gebucht_at' => '2026-10-05 12:00:00',
+                ]);
+            }
+        };
     }
 }

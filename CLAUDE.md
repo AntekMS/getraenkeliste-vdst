@@ -63,7 +63,7 @@ Aufbau bisher:
   `gebucht_at` je Vorgang, aktueller Preis; Unique-Verletzung im Wettlauf → Rollback + gespeichertes Ergebnis. Doppelte
   Artikel werden addiert (Summe ≤ 99), max. 30 Positionen. `storniereVorgang/storniereBuchung` prüfen Doppel-Storno, Frist
   (`storno_frist_min` ab `gebucht_at`) und `ZeitraumErmittler::istEingefroren` (Stichtag in Stufe 1 noch `null`); **wer**
-  stornieren darf, entscheidet der Controller. `zusammenfassung()` ist statisch/rein.
+  stornieren darf, entscheidet der Controller. `zusammenfassung()` ist statisch/rein. **Transaktionen laufen über `transaktion()` mit `transException(true)`: CI4 wirft in Transaktionen sonst nicht, ein fehlgeschlagener Query würde still Teilergebnisse committen.** Storno-Update mit `storniert_at IS NULL` + `affectedRows`. Ergebnis enthält `storniert` (Replay eines inzwischen stornierten Vorgangs).
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `alsAngemeldet`, `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
