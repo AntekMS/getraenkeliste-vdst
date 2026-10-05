@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Libraries\Anmeldung;
 use CodeIgniter\HTTP\RedirectResponse;
 
 class TabletController extends BaseController
@@ -27,6 +28,11 @@ class TabletController extends BaseController
         if (service('geraete')->freischalten((string) $this->request->getPost('code'), $name) === null) {
             return $zurueck->withInput()->with('error', self::MELDUNG_CODE);
         }
+
+        // Das Tablet gehört dem Gerät, nicht einer Person: persönlichen Login (Session + Merk-Token) beenden.
+        $anmeldung = service('anmeldung');
+        $anmeldung->merkenBeenden($this->request->getCookie(Anmeldung::MERK_COOKIE));
+        $anmeldung->abmelden();
 
         return redirect()->to(site_url('tablet'));
     }

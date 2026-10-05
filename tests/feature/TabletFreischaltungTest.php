@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Models\AnmeldeTokenModel;
 use App\Models\FreischaltcodeModel;
 use App\Models\GeraetModel;
 use App\Models\ProtokollModel;
@@ -222,14 +223,63 @@ final class TabletFreischaltungTest extends DbTestCase
         $antwort->assertSee('Dieses Tablet wurde gesperrt.');
     }
 
-    public function test_gesperrtes_geraet_darf_normal_einloggen(): void
+    public function test_gesperrtes_geraet_sieht_auf_allen_routen_die_sperrseite(): void
     {
         [$token, $geraet] = $this->geraetAnlegen();
         (new GeraetModel())->update($geraet['id'], ['gesperrt_at' => '2026-10-05 12:05:00']);
         $this->cookieSetzen($token);
 
+        foreach (['login', 'buchen', 'meine-buchungen', 'konto', 'admin/personen'] as $pfad) {
+            $antwort = $this->get($pfad);
+            $antwort->assertStatus(403);
+            $antwort->assertSee('Dieses Tablet wurde gesperrt.');
+        }
+    }
+
+    public function test_gesperrtes_geraet_erreicht_logout_nicht(): void
+    {
+        [$token, $geraet] = $this->geraetAnlegen();
+        (new GeraetModel())->update($geraet['id'], ['gesperrt_at' => '2026-10-05 12:05:00']);
+        $this->cookieSetzen($token);
+
+        $this->withSession(['csrf_test_name' => 'test-token'])->post('logout', $this->csrf())->assertStatus(403);
+    }
+
+    public function test_unbekanntes_geraete_cookie_zaehlt_als_kein_geraet(): void
+    {
+        $this->cookieSetzen(str_repeat('b', 64));
+
         $this->get('login')->assertOK();
-        $this->get('meine-buchungen')->assertRedirectTo(site_url('login'));
+        $this->get('buchen')->assertRedirectTo(site_url('login'));
+    }
+
+    public function test_freischalten_beendet_persoenlichen_login_und_remember_token(): void
+    {
+        $person = $this->personAnlegen();
+        $this->rolleGeben($person, 'admin');
+        $this->uhrStellen(self::JETZT);
+        $merk = (new AnmeldeTokenModel())->erzeuge($person, service('uhr')->jetzt());
+        service('superglobals')->setCookie('gl_merken', $merk);
+        $code = $this->codeErzeugen();
+
+        $antwort = $this->alsAngemeldet($person)
+            ->post('tablet/freischalten', [...$this->csrf(), 'code' => $code, 'name' => 'Kühlschrank']);
+
+        $antwort->assertRedirectTo(site_url('tablet'));
+        $this->assertSame('', $antwort->response()->getCookie('gl_merken')->getValue());
+        $this->assertNull(session('person_id'));
+        $this->assertSame(0, (new AnmeldeTokenModel())->where('person_id', $person)->countAllResults());
+
+        $token = $antwort->response()->getCookie('gl_geraet')->getValue();
+        (new GeraetModel())->where('token_hash', hash('sha256', $token))->set(['gesperrt_at' => '2026-10-05 12:30:00'])->update();
+        $this->cookieSetzen($token);
+
+        // Das Browser-Cookie gl_merken ist ohne DB-Token wertlos; es wird hier bewusst weiter mitgesendet.
+        // withSession ersetzt die Test-Session (sonst bliebe die Person der Test-Hilfe angemeldet).
+        $this->withSession(['csrf_test_name' => 'test-token'])->get('admin/personen')->assertStatus(403);
+        $this->get('buchen')->assertStatus(403);
+
+        service('superglobals')->unsetCookie('gl_merken');
     }
 
     public function test_tablet_erreicht_keine_anderen_routen(): void
@@ -243,6 +293,28 @@ final class TabletFreischaltungTest extends DbTestCase
         $this->get('admin/personen')->assertRedirectTo(site_url('tablet'));
         $this->alsAngemeldet($admin)->get('admin/personen')->assertRedirectTo(site_url('tablet'));
         $this->get('tablet/freischalten')->assertRedirectTo(site_url('tablet'));
+        $this->alsAngemeldet($admin)->get('konto')->assertRedirectTo(site_url('tablet'));
+        $this->alsAngemeldet($admin)->get('konto/einrichten')->assertRedirectTo(site_url('tablet'));
+        $this->alsAngemeldet($admin)->get('buchen')->assertRedirectTo(site_url('tablet'));
+    }
+
+    public function test_tablet_erreicht_logout_nicht(): void
+    {
+        $admin = $this->adminAnlegen();
+        [$token] = $this->geraetAnlegen();
+        $this->cookieSetzen($token);
+
+        $this->alsAngemeldet($admin)->post('logout', $this->csrf())->assertRedirectTo(site_url('tablet'));
+    }
+
+    public function test_tablet_erreicht_admin_post_nicht(): void
+    {
+        $admin = $this->adminAnlegen();
+        [$token] = $this->geraetAnlegen();
+        $this->cookieSetzen($token);
+
+        $this->alsAngemeldet($admin)->post('admin/tablets/code', $this->csrf())->assertRedirectTo(site_url('tablet'));
+        $this->assertSame(1, (new FreischaltcodeModel())->countAllResults());
     }
 
     public function test_nur_admin_erzeugt_codes(): void

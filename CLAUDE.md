@@ -138,8 +138,10 @@ Aufbau bisher:
   `before` setzt Request-Zustand, `after` setzt das Cookie bei **jeder** Antwort neu (gleitend, auch bei Redirects, ohne
   `withCookies`); Argument `frei` (Freischaltseite) leitet freigeschaltete Tablets zu `tablet`. Gesperrtes Tablet auf
   Tablet-Routen: 403 `tablet/gesperrt`. Nicht-Tablet-Routen: `angemeldet` und `kein_tablet` (nur `login`) leiten ein
-  **gültiges, nicht gesperrtes** Geräte-Cookie zu `tablet`; ein gesperrtes/unbekanntes Cookie zählt als „kein Gerät“
-  (normaler Login möglich). `tablet` ist bis Task 15 ein Platzhalter. Admin: umbenennen, sperren (kein Entsperren),
+  **gültiges, nicht gesperrtes** Geräte-Cookie zu `tablet`; ein **gesperrtes** Gerät bekommt dort die 403-Seite
+  „Dieses Tablet wurde gesperrt.“ (`Geraete::nichtTabletAntwort`); ein unbekanntes/ungültiges Cookie zählt als „kein Gerät“.
+  Erfolgreiches Freischalten beendet den persönlichen Login im Browser (`merkenBeenden` + `abmelden`; `GeraetFilter::after`
+  wendet auch die `gl_merken`-Löschung an). `tablet` ist bis Task 15 ein Platzhalter. Admin: umbenennen, sperren (kein Entsperren),
   Protokoll `umbenannt`/`gesperrt`. **Bekannte Grenze Stufe 1:** keine Drosselung der Code-Eingabe (10^8 Codes, 15 Min).
 
 ## Konventionen & Invarianten

@@ -18,11 +18,7 @@ class KeinTabletFilter implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null)
     {
-        if (service('geraete')->ausCookie($request->getCookie(Geraete::COOKIE)) !== null) {
-            return redirect()->to(site_url('tablet'));
-        }
-
-        return null;
+        return service('geraete')->nichtTabletAntwort($request->getCookie(Geraete::COOKIE));
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)

@@ -42,7 +42,7 @@ class GeraetFilter implements FilterInterface
         }
 
         if ($geraete->istGesperrtesToken($token)) {
-            return service('response')->setStatusCode(403)->setBody(view('tablet/gesperrt'));
+            return $geraete->gesperrtAntwort();
         }
 
         return redirect()->to(site_url('tablet/freischalten'));
@@ -51,6 +51,8 @@ class GeraetFilter implements FilterInterface
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)
     {
         service('geraete')->cookieAnwenden($response);
+        // Freischalten beendet den persönlichen Login: gl_merken-Löschung muss die Antwort erreichen.
+        service('anmeldung')->merkCookieAnwenden($response);
 
         return null;
     }

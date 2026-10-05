@@ -20,9 +20,11 @@ class AnmeldungFilter implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null)
     {
-        // Tablets erreichen nur `tablet/*` (gesperrtes/unbekanntes Geräte-Cookie zählt als kein Gerät).
-        if (service('geraete')->ausCookie($request->getCookie(Geraete::COOKIE)) !== null) {
-            return redirect()->to(site_url('tablet'));
+        // Tablets erreichen nur `tablet/*`; gesperrtes Gerät: 403-Seite; unbekanntes Cookie = kein Gerät.
+        $geraeteAntwort = service('geraete')->nichtTabletAntwort($request->getCookie(Geraete::COOKIE));
+
+        if ($geraeteAntwort !== null) {
+            return $geraeteAntwort;
         }
 
         $anmeldung = service('anmeldung');

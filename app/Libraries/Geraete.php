@@ -88,6 +88,24 @@ final class Geraete
     }
 
     /**
+     * Antwort für Nicht-Tablet-Routen: gültiges Gerät → Redirect zu `tablet`, gesperrtes Gerät →
+     * 403-Seite, sonst (kein/unbekanntes Cookie) null.
+     */
+    public function nichtTabletAntwort(?string $token): ?ResponseInterface
+    {
+        if ($this->ausCookie($token) !== null) {
+            return redirect()->to(site_url('tablet'));
+        }
+
+        return $this->istGesperrtesToken($token) ? $this->gesperrtAntwort() : null;
+    }
+
+    public function gesperrtAntwort(): ResponseInterface
+    {
+        return service('response')->setStatusCode(403)->setBody(view('tablet/gesperrt'));
+    }
+
+    /**
      * Setzt den Request-Zustand zurück und merkt optional das Token zum Setzen des Cookies vor.
      */
     public function zuruecksetzen(?string $cookieToken = null): void
