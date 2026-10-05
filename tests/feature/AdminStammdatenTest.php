@@ -211,12 +211,22 @@ final class AdminStammdatenTest extends DbTestCase
         $this->senden("admin/artikel/{$b}/verschieben/runter")->assertRedirectTo(site_url('admin/stammdaten'));
         $this->assertSame([$c, $a, $b], $this->reihenfolge($kategorie));
 
+        // Archivierter Artikel dazwischen: wird übersprungen und behält seine Sortierung.
+        $k = $this->kategorieAnlegen('Cider');
+        $p = $this->artikelAnlegen(['kategorie_id' => $k, 'name' => 'P', 'sortierung' => 1]);
+        $q = $this->artikelAnlegen(['kategorie_id' => $k, 'name' => 'Q', 'sortierung' => 2, 'archiviert_at' => '2026-10-01 00:00:00']);
+        $r = $this->artikelAnlegen(['kategorie_id' => $k, 'name' => 'R', 'sortierung' => 3]);
+        $this->senden("admin/artikel/{$r}/verschieben/hoch");
+        $this->assertSame(2, (int) $this->artikel($q)['sortierung']);
+        $this->assertSame(1, (int) $this->artikel($r)['sortierung']);
+        $this->assertSame(2, (int) $this->artikel($p)['sortierung']);
+
         // Kategorien
         $k1 = $this->kategorieAnlegen('Wein');
         $k2 = $this->kategorieAnlegen('Saft');
         $this->senden("admin/kategorien/{$k2}/verschieben/hoch");
         $namen = array_column((new KategorieModel())->where('bereich_id', $this->bereichId('getraenke'))->orderBy('sortierung')->orderBy('id')->findAll(), 'id');
-        $this->assertSame([$kategorie, $k2, $k1], array_map('intval', $namen));
+        $this->assertSame([$kategorie, $k, $k2, $k1], array_map('intval', $namen));
         $this->assertSame([], $this->protokoll('verschoben'), 'Sortieren wird nicht protokolliert.');
     }
 

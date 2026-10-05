@@ -56,7 +56,7 @@
                         <?php foreach (['hoch' => ['arrow-up', 'nach oben'], 'runter' => ['arrow-down', 'nach unten']] as $richtung => [$icon, $text]): ?>
                             <form action="<?= base_url('admin/kategorien/' . $kategorie['id'] . '/verschieben/' . $richtung) ?>" method="post">
                                 <?= csrf_field() ?>
-                                <button type="submit" class="btn btn-sm btn-outline-vdst" aria-label="Kategorie <?= esc($kategorie['name']) ?> <?= $text ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-vdst" aria-label="Kategorie <?= esc($kategorie['name']) ?> <?= $text ?>" title="Kategorie <?= esc($kategorie['name']) ?> <?= $text ?>">
                                     <i class="bi bi-<?= $icon ?>" aria-hidden="true"></i>
                                 </button>
                             </form>
@@ -93,7 +93,7 @@
                                                 <?php foreach (['hoch' => ['arrow-up', 'nach oben'], 'runter' => ['arrow-down', 'nach unten']] as $richtung => [$icon, $text]): ?>
                                                     <form action="<?= base_url('admin/artikel/' . $a['id'] . '/verschieben/' . $richtung) ?>" method="post">
                                                         <?= csrf_field() ?>
-                                                        <button type="submit" class="btn btn-sm btn-outline-vdst" aria-label="<?= esc($a['name']) ?> <?= $text ?>">
+                                                        <button type="submit" class="btn btn-sm btn-outline-vdst" aria-label="<?= esc($a['name']) ?> <?= $text ?>" title="<?= esc($a['name']) ?> <?= $text ?>">
                                                             <i class="bi bi-<?= $icon ?>" aria-hidden="true"></i>
                                                         </button>
                                                     </form>
