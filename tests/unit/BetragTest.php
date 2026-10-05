@@ -65,6 +65,9 @@ final class BetragTest extends CIUnitTestCase
             'drei Nachkommastellen' => ['1,234', null],
             'negativ'             => ['-1,00', null],
             'null'                => [null, null],
+            'sieben Euro-Stellen' => ['9999999,99', 999999999],
+            'acht Euro-Stellen'   => ['10000000', null],
+            'absurd lang'         => [str_repeat('9', 40), null],
         ];
     }
 

@@ -121,6 +121,13 @@ Aufbau bisher:
   `PersonModel::transaktion()` = Transaktion mit `transException(true)` (R12), `legeMitgliedAn`, `mitglieder`, `benutzernameVergeben`.
   Upload-Prüfung ohne `isValid()` (Tests setzen `service('superglobals')->setFilesArray`).
 
+- Admin Kategorien/Artikel (`/admin/stammdaten`, Nav „Getränke & Preise“): `StammdatenController`. Nur **aktive Bereiche**; alles in einem
+  inaktiven Bereich (Kiosk) ist 404 (Anlegen/Ändern/Verschieben/Archivieren). Archivierte nur mit `?archiviert=ja`; Archivierte sind nicht
+  bearbeitbar, Entarchivieren gibt es nicht. Kategorie archivieren archiviert Artikel nicht (sind aber nicht buchbar). Artikel-Umzug nur in
+  aktive, nicht archivierte Kategorien, danach ans Ende (`naechsteSortierung`). Preis: `betrag_in_cent` (max. 7 Euro-Stellen), Preis 0 erlaubt;
+  Protokoll `preis_geaendert` (alt/neu `preis_cent`) getrennt von `geaendert`. **Sortieren (`verschiebe`) nicht protokolliert**; `Sortierung::tausche`
+  + lückenlose Neunummerierung (robust gegen Gleichstände), Rand = No-op. `Transaktion`-Trait (`transaktion()` mit transException) in Person-/Kategorie-/ArtikelModel.
+
 ## Konventionen & Invarianten
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token

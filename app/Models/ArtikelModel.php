@@ -9,6 +9,8 @@ use CodeIgniter\Model;
 
 class ArtikelModel extends Model
 {
+    use Transaktion;
+
     protected $table         = 'artikel';
     protected $returnType    = 'array';
     protected $useTimestamps = true;
@@ -57,6 +59,47 @@ class ArtikelModel extends Model
             ->select('a.*, b.schluessel AS bereich_schluessel')
             ->where('a.id', $id)
             ->get()->getRowArray();
+    }
+
+    /**
+     * Nächste Sortierposition am Ende der Kategorie.
+     */
+    public function naechsteSortierung(int $kategorieId): int
+    {
+        $max = $this->selectMax('sortierung')->where('kategorie_id', $kategorieId)->first();
+
+        return (int) ($max['sortierung'] ?? 0) + 1;
+    }
+
+    /**
+     * Tauscht die Position mit dem Nachbarn (unter den nicht archivierten Artikeln der Kategorie).
+     * Am Rand passiert nichts. Die Positionen werden dabei lückenlos neu vergeben (Gleichstände).
+     *
+     * @param 'hoch'|'runter' $richtung
+     */
+    public function verschiebe(int $id, string $richtung): void
+    {
+        $artikel = $this->find($id);
+
+        if ($artikel === null || $artikel['archiviert_at'] !== null) {
+            return;
+        }
+
+        $this->transaktion(function () use ($artikel, $id, $richtung): void {
+            $ids = array_map('intval', array_column(
+                $this->where('kategorie_id', $artikel['kategorie_id'])->where('archiviert_at', null)
+                    ->orderBy('sortierung')->orderBy('id')->findAll(),
+                'id',
+            ));
+
+            if (! Sortierung::tausche($ids, $id, $richtung)) {
+                return;
+            }
+
+            foreach ($ids as $position => $artikelId) {
+                $this->update($artikelId, ['sortierung' => $position + 1]);
+            }
+        });
     }
 
     private function buchbarQuery(): BaseBuilder

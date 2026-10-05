@@ -9,6 +9,8 @@ use RuntimeException;
 
 class PersonModel extends Model
 {
+    use Transaktion;
+
     protected $table         = 'personen';
     protected $returnType    = 'array';
     protected $useTimestamps = true;
@@ -145,28 +147,6 @@ class PersonModel extends Model
     public function vorhandeneBenutzernamen(): array
     {
         return array_column($this->select('benutzername')->where('benutzername IS NOT NULL')->findAll(), 'benutzername');
-    }
-
-    /**
-     * Transaktion, in der jeder fehlgeschlagene Query eine Exception wirft (CI4 wirft in
-     * Transaktionen sonst nicht und committet Teilergebnisse). Bei jedem Fehler: Rollback, Exception weiter.
-     */
-    public function transaktion(callable $arbeit): void
-    {
-        $this->db->transException(true);
-        $this->db->transBegin();
-
-        try {
-            $arbeit();
-            $this->db->transCommit();
-        } catch (\Throwable $e) {
-            $this->db->transRollback();
-
-            throw $e;
-        } finally {
-            $this->db->transException(false);
-            $this->db->resetTransStatus();
-        }
     }
 
     /**

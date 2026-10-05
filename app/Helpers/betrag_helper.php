@@ -53,6 +53,11 @@ if (!function_exists('betrag_in_cent')) {
 
         [$euro, $cent] = array_pad(explode('.', $normalisiert), 2, '0');
 
+        // Mehr als 7 Euro-Stellen sind nie ein sinnvoller Betrag und würden (int) überlaufen lassen.
+        if (strlen($euro) > 7) {
+            return null;
+        }
+
         return (int) $euro * 100 + (int) str_pad($cent, 2, '0');
     }
 }

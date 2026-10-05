@@ -42,4 +42,16 @@ $routes->group('admin', ['filter' => ['angemeldet', 'recht:admin'], 'namespace' 
     $routes->post('personen/(:num)/passwort-reset', 'PersonenController::passwortReset/$1');
     $routes->post('personen/(:num)/pin-reset', 'PersonenController::pinReset/$1');
     $routes->post('personen/(:num)/archivieren', 'PersonenController::archivieren/$1');
+
+    $routes->get('stammdaten', 'StammdatenController::index');
+    $routes->post('kategorien', 'StammdatenController::kategorieAnlegen');
+    $routes->post('kategorien/(:num)', 'StammdatenController::kategorieSpeichern/$1');
+    $routes->post('kategorien/(:num)/verschieben/(hoch|runter)', 'StammdatenController::kategorieVerschieben/$1/$2');
+    $routes->post('kategorien/(:num)/archivieren', 'StammdatenController::kategorieArchivieren/$1');
+    $routes->get('artikel/neu', 'StammdatenController::artikelNeu');
+    $routes->get('artikel/(:num)', 'StammdatenController::artikelBearbeiten/$1');
+    $routes->post('artikel', 'StammdatenController::artikelAnlegen');
+    $routes->post('artikel/(:num)', 'StammdatenController::artikelSpeichern/$1');
+    $routes->post('artikel/(:num)/verschieben/(hoch|runter)', 'StammdatenController::artikelVerschieben/$1/$2');
+    $routes->post('artikel/(:num)/archivieren', 'StammdatenController::artikelArchivieren/$1');
 });

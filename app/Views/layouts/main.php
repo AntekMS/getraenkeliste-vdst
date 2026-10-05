@@ -41,7 +41,7 @@ $aktiv     = static fn (string $praefix): string => str_starts_with($pfad, $prae
             <a class="app-nav-link app-nav-sub <?= $aktiv('admin/personen') ?>" href="<?= base_url('admin/personen') ?>">
                 <i class="bi bi-people" aria-hidden="true"></i> Personen
             </a>
-            <a class="app-nav-link app-nav-sub <?= $aktiv('admin/artikel') ?>" href="<?= base_url('admin/artikel') ?>">
+            <a class="app-nav-link app-nav-sub <?= $aktiv('admin/stammdaten') ?>" href="<?= base_url('admin/stammdaten') ?>">
                 <i class="bi bi-tags" aria-hidden="true"></i> Getränke &amp; Preise
             </a>
             <a class="app-nav-link app-nav-sub <?= $aktiv('admin/tablets') ?>" href="<?= base_url('admin/tablets') ?>">
