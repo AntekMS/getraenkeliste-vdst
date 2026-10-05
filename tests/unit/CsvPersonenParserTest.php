@@ -48,10 +48,9 @@ final class CsvPersonenParserTest extends CIUnitTestCase
         $ergebnis = (new CsvPersonenParser())->parse($inhalt, [], []);
 
         $this->assertNull($ergebnis['fehler']);
-        $this->assertCount(3, $ergebnis['zeilen']);
+        $this->assertCount(2, $ergebnis['zeilen']);
         $this->assertSame('aktiv', $ergebnis['zeilen'][0]['gruppe']);
-        $this->assertSame('Vor- und Nachname erforderlich', $ergebnis['zeilen'][1]['fehler']);
-        $this->assertSame('ben', $ergebnis['zeilen'][2]['benutzername']);
+        $this->assertSame('ben', $ergebnis['zeilen'][1]['benutzername']);
     }
 
     public function test_falsche_kopfzeile(): void
@@ -88,5 +87,21 @@ final class CsvPersonenParserTest extends CIUnitTestCase
         $ergebnis = (new CsvPersonenParser())->parse(self::KOPF . "Anna;Eins;kiosk;anna\n", [], []);
 
         $this->assertSame('Gruppe unbekannt', $ergebnis['zeilen'][0]['fehler']);
+    }
+
+    public function test_name_zu_lang(): void
+    {
+        $lang     = str_repeat('x', 101);
+        $ergebnis = (new CsvPersonenParser())->parse(self::KOPF . "{$lang};Eins;aktiv;anna\nAnna;" . str_repeat('ä', 100) . ";aktiv;anna2\n", [], []);
+
+        $this->assertSame('Name zu lang (max. 100 Zeichen)', $ergebnis['zeilen'][0]['fehler']);
+        $this->assertNull($ergebnis['zeilen'][1]['fehler']);
+    }
+
+    public function test_gleiche_person_zweimal_in_der_datei(): void
+    {
+        $ergebnis = (new CsvPersonenParser())->parse(self::KOPF . "Anna;Eins;aktiv;anna1\nanna;EINS;ah;anna2\n", [], []);
+
+        $this->assertSame([null, 'Person doppelt in der Datei'], array_column($ergebnis['zeilen'], 'fehler'));
     }
 }

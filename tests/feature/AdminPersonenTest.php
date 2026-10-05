@@ -17,6 +17,9 @@ final class AdminPersonenTest extends DbTestCase
 {
     private int $admin;
 
+    /** @var list<string> */
+    private array $tmpDateien = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -27,6 +30,10 @@ final class AdminPersonenTest extends DbTestCase
     protected function tearDown(): void
     {
         service('superglobals')->setFilesArray([]);
+
+        foreach ($this->tmpDateien as $datei) {
+            @unlink($datei);
+        }
         parent::tearDown();
     }
 
@@ -165,6 +172,10 @@ final class AdminPersonenTest extends DbTestCase
         $this->senden('admin/personen', ['benutzername' => 'a b'] + $this->neuePersonDaten());
         $this->assertNull((new PersonModel())->where('vorname', 'Anna')->first());
         $this->assertStringContainsString('ungültig', $_SESSION['error']);
+
+        $this->senden('admin/personen', ['vorname' => str_repeat('x', 101), 'benutzername' => 'langer'] + $this->neuePersonDaten());
+        $this->assertNull((new PersonModel())->where('benutzername', 'langer')->first());
+        $this->assertStringContainsString('100 Zeichen', $_SESSION['error']);
     }
 
     public function test_bearbeiten_protokolliert_nur_geaenderte_felder(): void
@@ -284,6 +295,7 @@ final class AdminPersonenTest extends DbTestCase
         $this->personAnlegen(['benutzername' => 'vergeben']);
         $csv = "vorname;nachname;gruppe;benutzername\r\nAnna;Eins;aktiv;anna\r\nBen;Zwei;xx;ben\r\nCarl;Drei;ah;vergeben\r\nJ\xFCrgen;M\xFCller;AH;jmueller\r\n";
         $tmp = tempnam(sys_get_temp_dir(), 'csv');
+        $this->tmpDateien[] = $tmp;
         file_put_contents($tmp, $csv);
         service('superglobals')->setFilesArray(['datei' => ['name' => 'leute.csv', 'type' => 'text/csv', 'tmp_name' => $tmp, 'error' => UPLOAD_ERR_OK, 'size' => strlen($csv)]]);
 
@@ -294,6 +306,10 @@ final class AdminPersonenTest extends DbTestCase
         $vorschau->assertSee('Jürgen');
         $this->assertSame(0, (new PersonModel())->where('benutzername', 'anna')->countAllResults());
         service('superglobals')->setFilesArray([]);
+
+        foreach ($this->tmpDateien as $datei) {
+            @unlink($datei);
+        }
 
         $zeilen = $_SESSION['import_zeilen'] ?? null;
         $this->assertCount(4, $zeilen);
@@ -339,6 +355,7 @@ final class AdminPersonenTest extends DbTestCase
         $this->senden('admin/personen/import/ausfuehren')->assertRedirectTo(site_url('admin/personen/import'));
 
         $tmp = tempnam(sys_get_temp_dir(), 'csv');
+        $this->tmpDateien[] = $tmp;
         file_put_contents($tmp, 'x');
         service('superglobals')->setFilesArray(['datei' => ['name' => 'leute.exe', 'type' => 'application/octet-stream', 'tmp_name' => $tmp, 'error' => UPLOAD_ERR_OK, 'size' => 1]]);
         $this->senden('admin/personen/import/vorschau')->assertRedirectTo(site_url('admin/personen/import'));

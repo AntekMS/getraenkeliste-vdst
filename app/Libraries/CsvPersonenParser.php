@@ -26,6 +26,7 @@ final class CsvPersonenParser
         $zeilen     = [];
         $kopfGelesen = false;
         $inDatei    = [];
+        $nameInDatei = [];
         $inDb       = array_fill_keys($vorhandeneBenutzernamen, true);
         $bekannt    = array_fill_keys($vorhandeneNamen, true);
 
@@ -46,21 +47,33 @@ final class CsvPersonenParser
                 continue;
             }
 
-            $felder  += ['', '', '', ''];
+            $felder += ['', '', '', ''];
+
+            if (implode('', $felder) === '') {
+                continue; // Excel-Leerzeile wie ;;;
+            }
+
             $vorname  = $felder[0];
             $nachname = $felder[1];
             $gruppe   = mb_strtolower($felder[2]);
             $name     = Anmelderegeln::benutzernameNormalisieren($felder[3]);
+            $schluessel = mb_strtolower($vorname . ' ' . $nachname);
 
             $fehler = match (true) {
                 $vorname === '' || $nachname === ''                            => 'Vor- und Nachname erforderlich',
+                mb_strlen($vorname) > 100 || mb_strlen($nachname) > 100 || mb_strlen($vorname . ' ' . $nachname) > 200 => 'Name zu lang (max. 100 Zeichen)',
                 ! in_array($gruppe, self::GRUPPEN, true)                       => 'Gruppe unbekannt',
                 $name === null                                                 => 'Benutzername ungültig',
                 isset($inDb[$name])                                            => 'Benutzername existiert bereits',
                 isset($inDatei[$name])                                         => 'Benutzername doppelt in der Datei',
-                isset($bekannt[mb_strtolower($vorname . ' ' . $nachname)])     => 'Person existiert bereits',
+                isset($bekannt[$schluessel])     => 'Person existiert bereits',
+                isset($nameInDatei[$schluessel])                             => 'Person doppelt in der Datei',
                 default                                                        => null,
             };
+
+            if ($fehler === null) {
+                $nameInDatei[$schluessel] = true;
+            }
 
             if ($name !== null) {
                 $inDatei[$name] = true;

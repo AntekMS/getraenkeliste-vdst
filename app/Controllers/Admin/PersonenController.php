@@ -60,7 +60,11 @@ class PersonenController extends BaseController
                 $this->rollenSchreiben($id, [], $rollen);
                 service('protokollierer')->schreibe($this->adminId(), 'angelegt', 'personen', $id, null, $daten + ['rollen' => $rollen]);
             });
-        } catch (DatabaseException) {
+        } catch (DatabaseException $e) {
+            if (! $model->benutzernameVergeben($daten['benutzername'])) {
+                throw $e;
+            }
+
             return redirect()->to(site_url('admin/personen/neu'))->withInput()->with('error', self::MELDUNG_NAME_VERGEBEN);
         }
 
@@ -120,7 +124,11 @@ class PersonenController extends BaseController
                     $protokoll->schreibe($this->adminId(), 'rollen_geaendert', 'personen', $id, ['rollen' => $rollenAlt], ['rollen' => $rollenNeu]);
                 }
             });
-        } catch (DatabaseException) {
+        } catch (DatabaseException $e) {
+            if (! $model->benutzernameVergeben($daten['benutzername'], $id)) {
+                throw $e;
+            }
+
             return $zurueck->withInput()->with('error', self::MELDUNG_NAME_VERGEBEN);
         }
 
@@ -252,6 +260,8 @@ class PersonenController extends BaseController
 
         $fehler = match (true) {
             $vorname === '' || $nachname === ''        => 'Vor- und Nachname sind erforderlich.',
+            mb_strlen($vorname) > 100 || mb_strlen($nachname) > 100 => 'Vor- und Nachname dürfen höchstens 100 Zeichen lang sein.',
+            mb_strlen($daten['anzeigename']) > 200 => 'Der Anzeigename darf höchstens 200 Zeichen lang sein.',
             ! in_array($gruppe, self::GRUPPEN, true)   => 'Bitte eine Gruppe wählen.',
             $name === null                             => 'Benutzername ungültig (3 bis 40 Zeichen: a-z, 0-9, Punkt, Unterstrich, Minus).',
             (new PersonModel())->benutzernameVergeben($name, $personId) => self::MELDUNG_NAME_VERGEBEN,

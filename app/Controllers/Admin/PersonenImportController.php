@@ -24,6 +24,7 @@ class PersonenImportController extends BaseController
     public function vorschau(): string|RedirectResponse
     {
         $zurueck = redirect()->to(site_url('admin/personen/import'));
+        session()->remove(self::SESSION_KEY);
         $datei   = $this->request->getFile('datei');
 
         // Kein isValid(): das verlangt is_uploaded_file() und lässt sich in Tests nicht erfüllen.
