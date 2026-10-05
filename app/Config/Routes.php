@@ -25,3 +25,6 @@ $routes->group('', ['filter' => ['angemeldet', 'recht:buchen']], static function
     $routes->post('buchen', 'BuchenController::buchen');
     $routes->post('buchen/rueckgaengig', 'BuchenController::rueckgaengig');
 });
+
+$routes->get('meine-buchungen', 'MeineBuchungenController::index', ['filter' => ['angemeldet', 'recht:buchen']]);
+$routes->post('meine-buchungen/storno/(:num)', 'MeineBuchungenController::storno/$1', ['filter' => ['angemeldet', 'recht:eigene_stornieren']]);
