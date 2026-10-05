@@ -96,4 +96,19 @@ class PersonModel extends Model
     {
         return $person['archiviert_at'] === null;
     }
+
+    /**
+     * Was die Person nach dem ersten Login (oder einem PIN-Reset) noch einrichten muss.
+     *
+     * @param array<string, mixed> $person
+     *
+     * @return array{passwort: bool, pin: bool}
+     */
+    public function brauchtEinrichtung(array $person): array
+    {
+        return [
+            'passwort' => (int) $person['passwort_wechsel_erzwingen'] === 1,
+            'pin'      => $person['pin_hash'] === null,
+        ];
+    }
 }

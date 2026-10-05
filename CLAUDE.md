@@ -69,6 +69,11 @@ Aufbau bisher:
   `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`); `csrf` bleibt global.
 - Routen: `GET/POST login`, `POST logout` (kein GET → 404), `/` → Redirect `buchen`,
   `GET buchen` (Platzhalter, Task 10 ersetzt ihn). `AuthController`, `BuchenController`.
+- Pflichtseite/Konto (`KontoController`): `PersonModel::brauchtEinrichtung` (Passwort bei `passwort_wechsel_erzwingen`,
+  PIN bei `pin_hash` NULL). Filter `angemeldet` leitet dann jede Route zu `konto/einrichten` um, außer Routen mit
+  Filter-Argument `angemeldet:frei` (`konto/einrichten` GET/POST, `logout`). `GET konto`, `POST konto/passwort`,
+  `POST konto/pin` (verlangen aktuelles Passwort). Passwortwechsel löscht alle Remember-Tokens + `regenerate`;
+  PIN-Wechsel setzt `pin_fehlversuche`/`pin_gesperrt_bis` zurück. Nicht protokolliert (eigene Änderungen).
 - Views: `layouts/main.php` (Sidebar, „Verwaltung“ nur für `admin`), `layouts/einfach.php`
   (standalone: Login, Pflichtseite, Tablet), Partials `layouts/kopf.php` (Theme-Skript, CSS/CDN) und
   `layouts/meldungen.php` (Flash `success`/`error`). `public/css/app.css` + `img/vdst-logo.svg`
