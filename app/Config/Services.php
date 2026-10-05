@@ -3,6 +3,7 @@
 namespace Config;
 
 use App\Libraries\Anmeldung;
+use App\Libraries\BuchungService;
 use App\Libraries\Einstellungen;
 use App\Libraries\Protokollierer;
 use App\Libraries\Uhr;
@@ -39,6 +40,15 @@ class Services extends BaseService
         }
 
         return new Einstellungen();
+    }
+
+    public static function buchungen(bool $getShared = true): BuchungService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('buchungen');
+        }
+
+        return new BuchungService();
     }
 
     public static function protokollierer(bool $getShared = true): Protokollierer

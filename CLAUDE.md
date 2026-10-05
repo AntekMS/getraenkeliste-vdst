@@ -56,6 +56,14 @@ Aufbau bisher:
   `inbetriebnahme`, `setze` → Fehlertext|null, protokolliert alt/neu) lädt die Werte je Request einmal.
   `Protokollierer::schreibe` entfernt oberste-Ebene-Schlüssel auf `_hash`, speichert JSON ohne
   Unicode-Escapes (MySQL normalisiert beim Lesen zu `{"wert": "10"}` → in Tests dekodiert vergleichen).
+- `app/Libraries/BuchungService.php` (Service `buchungen()`, wirft `BuchungAbgelehnt` mit deutscher UI-Meldung):
+  `bucheVorgang(vorgangId UUIDv4, kontoId, gebuchtVonId, geraetId, quelle web|tablet, positionen)` — bekannte `vorgang_id`
+  wird **vor** jeder Fachprüfung beantwortet (gespeichertes Ergebnis, `wiederholt=true`; Konto UND gebucht_von müssen passen,
+  sonst „Ungültiger Vorgang.“); sonst alles-oder-nichts in einer manuellen Transaktion (`transBegin/Commit/Rollback`), ein
+  `gebucht_at` je Vorgang, aktueller Preis; Unique-Verletzung im Wettlauf → Rollback + gespeichertes Ergebnis. Doppelte
+  Artikel werden addiert (Summe ≤ 99), max. 30 Positionen. `storniereVorgang/storniereBuchung` prüfen Doppel-Storno, Frist
+  (`storno_frist_min` ab `gebucht_at`) und `ZeitraumErmittler::istEingefroren` (Stichtag in Stufe 1 noch `null`); **wer**
+  stornieren darf, entscheidet der Controller. `zusammenfassung()` ist statisch/rein.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `alsAngemeldet`, `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
