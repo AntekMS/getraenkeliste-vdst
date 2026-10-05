@@ -82,7 +82,7 @@ Aufbau bisher:
   MySQL-Volumes; bei bestehendem Volume manuell nachholen)
 
 ## Konventionen & Invarianten
-- Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort.
+- Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token
   muss idempotent bleiben); `Security::$redirect = true` — Formular-POST ohne gültiges
   CSRF-Token wird zurückgeleitet statt 403 (JSON/AJAX bekommt 403).
