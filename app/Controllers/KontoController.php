@@ -59,7 +59,7 @@ class KontoController extends BaseController
 
         $this->speichere((int) $person['id'], $daten, $offen['passwort']);
 
-        return redirect()->to(site_url('buchen'))->with('success', 'Alles eingerichtet.');
+        return redirect()->to(site_url('buchen'))->with('success', 'Alles eingerichtet.')->withCookies();
     }
 
     public function index(): string

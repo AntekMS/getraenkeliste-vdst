@@ -6,6 +6,7 @@ namespace App\Libraries;
 
 use App\Models\AnmeldeTokenModel;
 use App\Models\PersonModel;
+use CodeIgniter\HTTP\ResponseInterface;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -20,6 +21,9 @@ final class Anmeldung
     public const MERK_COOKIE = 'gl_merken';
 
     private const DATUMSFORMAT = 'Y-m-d H:i:s';
+
+    /** @var ?array<string, mixed> Cookie-Änderung dieses Requests (setzen oder ['loeschen' => true]) */
+    private ?array $merkAktion = null;
 
     /**
      * Prüft die Sperre VOR dem Passwort: Solange gesperrt, wird auch das richtige Passwort
@@ -122,18 +126,39 @@ final class Anmeldung
 
     public function merkCookieLoeschen(): void
     {
+        $this->merkAktion = ['loeschen' => true];
         response()->deleteCookie(self::MERK_COOKIE);
+    }
+
+    /**
+     * Wendet die in diesem Request ausgeführte Cookie-Änderung auf die tatsächlich gesendete Antwort an
+     * (Filter `after`), damit sie auch bei Redirects ohne `withCookies()` nicht verloren geht.
+     */
+    public function merkCookieAnwenden(ResponseInterface $antwort): void
+    {
+        if ($this->merkAktion === null) {
+            return;
+        }
+
+        if (isset($this->merkAktion['loeschen'])) {
+            $antwort->deleteCookie(self::MERK_COOKIE);
+
+            return;
+        }
+
+        $antwort->setCookie($this->merkAktion);
     }
 
     private function merkCookieSetzen(string $wert): void
     {
-        response()->setCookie([
+        $this->merkAktion = [
             'name'     => self::MERK_COOKIE,
             'value'    => $wert,
             'expire'   => AnmeldeTokenModel::GUELTIG_TAGE * 86400,
             'httponly' => true,
             'samesite' => 'Lax',
-        ]);
+        ];
+        response()->setCookie($this->merkAktion);
     }
 
     public function abmelden(): void

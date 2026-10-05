@@ -84,14 +84,40 @@ final class MerkTokenTest extends DbTestCase
         $this->assertSame(1, $this->tokenAnzahl($id));
 
         // alter Cookie ist verbraucht
-        $this->resetServices();
-        $this->uhrStellen('2026-10-05 12:00:00');
         session()->remove('person_id');
         $this->cookieSetzen($alt);
         $this->get('buchen')->assertRedirectTo(site_url('login'));
 
-        // der neue funktioniert (wurde durch den Diebstahl-Zweig aber nicht berührt: anderer Selector)
+        // der neue Cookie meldet ohne Session an
+        session()->remove('person_id');
+        $this->cookieSetzen($neu);
+        $wieder = $this->get('buchen');
+        $wieder->assertOK();
+        $this->assertSame($id, (int) session('person_id'));
         $this->assertSame(1, $this->tokenAnzahl($id));
+    }
+
+    public function test_rotierter_cookie_ueberlebt_redirect_aus_dem_controller(): void
+    {
+        $id = $this->personAnlegen();
+        $this->cookieSetzen($this->cookieErzeugen($id));
+
+        $antwort = $this->get('konto/einrichten');
+
+        $antwort->assertRedirectTo(site_url('buchen'));
+        $antwort->assertCookie('gl_merken');
+        $this->assertSame(1, $this->tokenAnzahl($id));
+    }
+
+    public function test_rotierter_cookie_ueberlebt_redirect_zur_einrichtung(): void
+    {
+        $id = $this->personAnlegen(['passwort_wechsel_erzwingen' => 1]);
+        $this->cookieSetzen($this->cookieErzeugen($id));
+
+        $antwort = $this->get('buchen');
+
+        $antwort->assertRedirectTo(site_url('konto/einrichten'));
+        $antwort->assertCookie('gl_merken');
     }
 
     public function test_gestohlener_validator_loescht_alle_tokens(): void
@@ -141,7 +167,7 @@ final class MerkTokenTest extends DbTestCase
         $this->assertSame(0, $this->tokenAnzahl($id));
         $this->assertSame('', $antwort->response()->getCookie('gl_merken')->getValue());
 
-        $this->withSession([]);
+        $this->withSession(['csrf_test_name' => 'test-token']);
         session()->remove('person_id');
         $this->cookieSetzen($cookie);
         $this->get('buchen')->assertRedirectTo(site_url('login'));

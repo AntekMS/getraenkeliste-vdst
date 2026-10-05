@@ -43,6 +43,9 @@ class AnmeldungFilter implements FilterInterface
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null)
     {
+        // Cookie-Änderungen (Rotation, Löschen) gehen so auch bei Redirects ohne withCookies() raus.
+        service('anmeldung')->merkCookieAnwenden($response);
+
         return null;
     }
 }
