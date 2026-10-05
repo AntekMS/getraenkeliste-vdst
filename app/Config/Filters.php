@@ -2,6 +2,8 @@
 
 namespace Config;
 
+use App\Filters\AnmeldungFilter;
+use App\Filters\RechtFilter;
 use CodeIgniter\Config\Filters as BaseFilters;
 use CodeIgniter\Filters\Cors;
 use CodeIgniter\Filters\CSRF;
@@ -26,6 +28,8 @@ class Filters extends BaseFilters
      */
     public array $aliases = [
         'csrf'          => CSRF::class,
+        'angemeldet'    => AnmeldungFilter::class,
+        'recht'         => RechtFilter::class,
         'toolbar'       => DebugToolbar::class,
         'honeypot'      => Honeypot::class,
         'invalidchars'  => InvalidChars::class,

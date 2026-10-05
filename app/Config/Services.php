@@ -2,6 +2,7 @@
 
 namespace Config;
 
+use App\Libraries\Anmeldung;
 use App\Libraries\Einstellungen;
 use App\Libraries\Protokollierer;
 use App\Libraries\Uhr;
@@ -13,6 +14,15 @@ use CodeIgniter\Config\BaseService;
  */
 class Services extends BaseService
 {
+    public static function anmeldung(bool $getShared = true): Anmeldung
+    {
+        if ($getShared) {
+            return static::getSharedInstance('anmeldung');
+        }
+
+        return new Anmeldung();
+    }
+
     public static function uhr(bool $getShared = true): Uhr
     {
         if ($getShared) {

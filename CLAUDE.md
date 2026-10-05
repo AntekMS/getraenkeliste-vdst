@@ -23,6 +23,7 @@ Auf diesem Rechner gibt es **kein Host-PHP/Composer** — alles im Web-Container
   `feature`); entspricht `composer test`
 - `docker exec getraenkeliste-web php spark migrate` — Migrationen
 - `docker exec getraenkeliste-web php spark routes` — Routenliste
+- `docker exec -it getraenkeliste-web php spark admin:anlegen` — ersten Admin anlegen
 - `docker exec getraenkeliste-web php -l <datei>` — Syntax-Check
 - Git Bash: bei `docker run -v` den Pfad mit `MSYS_NO_PATHCONV=1` bzw. `$(pwd -W)` übergeben
 
@@ -35,7 +36,7 @@ Auf diesem Rechner gibt es **kein Host-PHP/Composer** — alles im Web-Container
   nicht mit CRLF ankommen.
 
 ## Architektur-Landkarte
-Bisher nur das Gerüst:
+Aufbau bisher:
 - `app/Config/` — angepasst: `App` (Europe/Berlin, Locale `de`, kein `index.php` in URLs),
   `Security` (CSRF `session`), `Session`, `Cookie`, `Filters` (`csrf` global), `Database`
   (liest `DB_HOST/DB_NAME/DB_USER/DB_PASS` aus der Compose-Umgebung)
@@ -59,6 +60,24 @@ Bisher nur das Gerüst:
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `alsAngemeldet`, `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
   `tearDown` setzt alle Services zurück, damit Mocks/Einstellungs-Cache nicht lecken) (Passwort-Hashes mit Kosten 4 für Tempo)
+- `app/Libraries/Anmeldung.php` (Service `anmeldung()`) — Login am eigenen Gerät:
+  `pruefePasswort` prüft **zuerst** die Sperre (`PinSperre`, `login_fehlversuche`/`login_gesperrt_bis`),
+  dann das Passwort; unbekannte/archivierte Person = dieselbe Meldung wie falsches Passwort.
+  `anmelden` (`regenerate(true)`), `abmelden` (Session leeren), `person()` (nicht archiviert, sonst
+  Abmeldung → Filter leitet zu `login`), `rollen()`.
+- `app/Filters/` — `angemeldet` (AnmeldungFilter, per Routengruppe in `Routes.php`, nicht global) und
+  `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`); `csrf` bleibt global.
+- Routen: `GET/POST login`, `POST logout` (kein GET → 404), `/` → Redirect `buchen`,
+  `GET buchen` (Platzhalter, Task 10 ersetzt ihn). `AuthController`, `BuchenController`.
+- Views: `layouts/main.php` (Sidebar, „Verwaltung“ nur für `admin`), `layouts/einfach.php`
+  (standalone: Login, Pflichtseite, Tablet), Partials `layouts/kopf.php` (Theme-Skript, CSS/CDN) und
+  `layouts/meldungen.php` (Flash `success`/`error`). `public/css/app.css` + `img/vdst-logo.svg`
+  **unverändert** aus dem Kassensystem; `public/js/app.js` nur Theme-Toggle + `js-auto-dismiss`.
+- `php spark admin:anlegen` — fragt Vorname, Nachname, Benutzername, Passwort (2x) ab, prüft mit
+  `Anmelderegeln`, ruft `PersonModel::legeAdminAn` (Mitglied, aktiv, Rolle admin, PIN leer).
+- `codeigniter4/translations` liefert deutsche Framework-Meldungen (Locale `de`); eigene Texte sind Literale.
+- Tests: `MockSession` tauscht die Session-ID nicht; `test_session_id_wechselt_beim_login` prüft
+  `didRegenerate`. Login-POSTs in Feature-Tests: `withSession(['csrf_test_name'=>…])->post('login', [...csrf(), …])`.
 - `docker/mysql-init/01-testdb.sql` — legt die Testdatenbank an (nur beim ersten Start des
   MySQL-Volumes; bei bestehendem Volume manuell nachholen)
 

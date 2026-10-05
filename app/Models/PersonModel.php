@@ -46,6 +46,36 @@ class PersonModel extends Model
     }
 
     /**
+     * Legt einen Admin an (Mitglied, Gruppe aktiv). Die PIN bleibt leer; die Pflichtseite
+     * nach dem ersten Login fordert sie an.
+     */
+    public function legeAdminAn(string $vorname, string $nachname, string $benutzername, string $passwort): int
+    {
+        $this->db->transStart();
+
+        $id = (int) $this->insert([
+            'vorname'                    => $vorname,
+            'nachname'                   => $nachname,
+            'anzeigename'                => trim($vorname . ' ' . $nachname),
+            'gruppe'                     => 'aktiv',
+            'typ'                        => 'mitglied',
+            'benutzername'               => $benutzername,
+            'passwort_hash'              => password_hash($passwort, PASSWORD_DEFAULT),
+            'passwort_wechsel_erzwingen' => 0,
+        ], true);
+
+        (new PersonRolleModel())->insert(['person_id' => $id, 'rolle' => 'admin']);
+
+        $this->db->transComplete();
+
+        if (! $this->db->transStatus()) {
+            throw new RuntimeException('Admin konnte nicht angelegt werden.');
+        }
+
+        return $id;
+    }
+
+    /**
      * @param 'Couleur'|'Bund' $name
      */
     public function sammelkontoId(string $name): int
