@@ -67,7 +67,7 @@ Aufbau bisher:
 - „Angemeldet bleiben“: Cookie `gl_merken` = `<selector 24 hex>:<validator 64 hex>` (90 Tage, httponly, Lax, `secure` aus ConfigCookie),
   DB nur `sha256(validator)` (`AnmeldeTokenModel::erzeuge/rotiere/loescheCookie/loescheFuerPerson`). Filter `angemeldet` stellt
   ohne Session per `Anmeldung::ausCookieAnmelden` her (rotiert; archivierte Person → alle Tokens weg; falscher Validator → alle
-  Tokens der Person weg). **Redirects, die Cookies setzen/löschen, brauchen `->withCookies()`** (RedirectResponse ist eine neue
+  Tokens der Person weg). **Cookie-Änderungen wendet `AnmeldungFilter::after()` auf die gesendete Antwort an; `->withCookies()` nur für Redirects aus `before()` und ungefilterte Routen (login)** (RedirectResponse ist eine neue
   Response). Archivieren/Passwort-Reset müssen `loescheFuerPerson` + `merkCookieLoeschen` aufrufen. Tests setzen den Cookie über
   `service('superglobals')->setCookie(...)`, nicht `$_COOKIE`.
   Abmeldung → Filter leitet zu `login`), `rollen()`.
