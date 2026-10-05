@@ -141,8 +141,23 @@ Aufbau bisher:
   **gültiges, nicht gesperrtes** Geräte-Cookie zu `tablet`; ein **gesperrtes** Gerät bekommt dort die 403-Seite
   „Dieses Tablet wurde gesperrt.“ (`Geraete::nichtTabletAntwort`); ein unbekanntes/ungültiges Cookie zählt als „kein Gerät“.
   Erfolgreiches Freischalten beendet den persönlichen Login im Browser (`merkenBeenden` + `abmelden`; `GeraetFilter::after`
-  wendet auch die `gl_merken`-Löschung an). `tablet` ist bis Task 15 ein Platzhalter. Admin: umbenennen, sperren (kein Entsperren),
+  wendet auch die `gl_merken`-Löschung an). Admin: umbenennen, sperren (kein Entsperren),
   Protokoll `umbenannt`/`gesperrt`. **Bekannte Grenze Stufe 1:** keine Drosselung der Code-Eingabe (10^8 Codes, 15 Min).
+
+- Tablet-Betrieb (Task 15, `TabletController`): `tablet` = Namenskacheln (`PersonModel::tabletKacheln`: fest Couleur/Bund, `zuletzt` = 12 aktive
+  Mitglieder nach `MAX(gebucht_at)` über alle Buchungen auf ihr Konto inkl. stornierter, `alle`; Suche/Filter Zuletzt/Aktive/AHs/Alle clientseitig
+  in `public/js/tablet.js`, Seite lädt im Leerlauf nach 10 min neu); Aufruf leert die Tablet-Sitzung. Tablet-Session-Keys **getrennt** vom
+  Login: `tablet_konto_id`, `tablet_seit`, `tablet_letzter_vorgang` (nie `person_id`); alle `tablet/*`-Routen nur hinter `tablet` + `tablet_csrf`
+  (nicht `angemeldet`). Sitzung gilt höchstens 300 s ab `tablet_seit` (`uhr`), danach 401 `Sitzung abgelaufen …` bzw. Redirect zu `tablet`.
+  `tablet/waehlen/{id}` (POST-Kachel): Sammelkonto → `tablet/buchen`; Mitglied ohne PIN/archiviert → zurück mit Meldung; sonst `tablet/pin/{id}`.
+  PIN: `PinSperre::istGesperrt` **vor** `password_verify` (gesperrt → abgelehnt, Zähler unverändert), 4–6 Ziffern, falsch → `nachFehlversuch`,
+  Erfolg → Zähler zurück; Einzel-`update` mit Rückgabeprüfung (fail closed). Buchen: `quelle='tablet'`, `geraet_id` aus Cookie, `gebucht_von_id` =
+  Person bzw. NULL bei Sammelkonto, `konto` im Body wird ignoriert; Rückgängig nur für `tablet_letzter_vorgang` (sonst 403). Gemeinsame
+  JSON-Logik (Positionsprüfung, Antwortformat) in Trait `Controllers\Concerns\BuchungsAntworten` (auch `BuchenController`).
+  `buchen/index.php` hat Modus `web|tablet` (Tablet: `layouts/einfach` mit Section `seitenklasse` = `login-breit`, `data-fertig-url`,
+  `data-timeout-s`); `buchen.js` geht bei Leerlauf (`timeout_s`) und nach Bestätigung (min(`timeout_s`,10) s) per Formular-POST `tablet/fertig`.
+  **CSRF am Tablet:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Config\Filters`); `TabletCsrfFilter` leitet Formular-POSTs mit
+  ungültigem Token zu `tablet` mit Flash (statt `redirect()->back()`), JSON/AJAX bleibt 403. Neue Tablet-Routen gehören in die Gruppe `tablet` in `Routes.php`.
 
 ## Konventionen & Invarianten
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).

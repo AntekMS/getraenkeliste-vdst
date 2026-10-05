@@ -2,6 +2,8 @@
  * VDSt Getränkeliste - Buchen (eigenes Gerät; Tablet nutzt dieselbe Logik)
  * Konfiguration über data-Attribute am Wurzelelement #buchen-app:
  * data-buchen-url, data-rueckgaengig-url, data-vorgang-id, data-csrf-token.
+ * Tablet-Modus (data-fertig-url gesetzt): zusätzlich data-timeout-s; nach so vielen Sekunden ohne Eingabe
+ * und nach der Bestätigung (höchstens 10 s) wird das Formular .js-fertig-form (POST tablet/fertig) abgeschickt.
  */
 (function () {
     'use strict';
@@ -15,6 +17,11 @@
     const rueckgaengigUrl = root.dataset.rueckgaengigUrl;
     let vorgangId = root.dataset.vorgangId;
     let csrfToken = root.dataset.csrfToken;
+    const fertigUrl = root.dataset.fertigUrl || null; // gesetzt = Tablet-Modus
+    const timeoutS = parseInt(root.dataset.timeoutS, 10) || 30;
+    const fertigForm = root.querySelector('.js-fertig-form');
+    let leerlaufTimer = null;
+    let zurueckTimer = null;
 
     // artikel_id -> {name, preis, menge}
     const warenkorb = new Map();
@@ -30,6 +37,57 @@
     const fehlerBox = el('.js-fehler');
     const bestaetigung = el('.js-bestaetigung');
     const rueckgaengigButton = el('.js-rueckgaengig');
+    const zurueckInfo = el('.js-zurueck-info');
+
+    // Zurück zur Namensauswahl per Formular-POST (CSRF und Redirect wie bei Abbrechen), nicht per fetch.
+    function fertig() {
+        if (fertigForm) {
+            fertigForm.submit();
+        }
+    }
+
+    function leerlaufNeu() {
+        clearTimeout(leerlaufTimer);
+        leerlaufTimer = setTimeout(fertig, timeoutS * 1000);
+    }
+
+    function zurueckStoppen() {
+        clearInterval(zurueckTimer);
+        zurueckTimer = null;
+        if (zurueckInfo) {
+            zurueckInfo.hidden = true;
+        }
+    }
+
+    // Nach der Bestätigung: Anzeige timeout_s Sekunden, höchstens 10 s, dann zurück.
+    function zurueckStarten() {
+        zurueckStoppen();
+        let rest = Math.min(timeoutS, 10);
+        el('.js-zurueck-sekunden').textContent = String(rest);
+        zurueckInfo.hidden = false;
+        zurueckTimer = setInterval(function () {
+            rest -= 1;
+            if (rest <= 0) {
+                zurueckStoppen();
+                fertig();
+                return;
+            }
+            el('.js-zurueck-sekunden').textContent = String(rest);
+        }, 1000);
+    }
+
+    if (fertigUrl && fertigForm) {
+        fertigForm.action = fertigUrl;
+        ['pointerdown', 'keydown', 'touchstart'].forEach(function (name) {
+            document.addEventListener(name, leerlaufNeu, { passive: true });
+        });
+        leerlaufNeu();
+    }
+
+    // Ohne buchbare Artikel gibt es keine Bedienelemente (nur der Leerlauf-Rücksprung oben).
+    if (!buchenButton) {
+        return;
+    }
 
     const euro = function (cent) {
         return (cent / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
@@ -86,6 +144,7 @@
             warenkorb.set(id, p);
         }
         bestaetigung.hidden = true;
+        zurueckStoppen();
         render();
     }
 
@@ -133,14 +192,19 @@
         }
         zeigeFehler('');
         setzeLaeuft(true);
-        const konto = root.querySelector('input[name="konto"]:checked').value;
+        // Am Tablet bestimmt die Namenskachel das Konto (keine Auswahl, kein Feld).
+        const kontoWahl = root.querySelector('input[name="konto"]:checked');
         const positionen = [];
         warenkorb.forEach(function (p, id) {
             positionen.push({ artikel_id: parseInt(id, 10), menge: p.menge });
         });
 
         try {
-            const r = await sende(buchenUrl, { vorgang_id: vorgangId, konto: konto, positionen: positionen });
+            const daten = { vorgang_id: vorgangId, positionen: positionen };
+            if (kontoWahl) {
+                daten.konto = kontoWahl.value;
+            }
+            const r = await sende(buchenUrl, daten);
             if (r === null) {
                 return;
             }
@@ -167,6 +231,9 @@
         rueckgaengigButton.hidden = storniert;
         letzterVorgang = storniert ? null : gebuchterVorgang;
         bestaetigung.hidden = false;
+        if (fertigUrl) {
+            zurueckStarten();
+        }
     }
 
     async function rueckgaengig() {
@@ -186,6 +253,7 @@
                 bestaetigung.classList.add('alert-info');
                 rueckgaengigButton.hidden = true;
                 letzterVorgang = null;
+                zurueckStoppen();
             } else {
                 zeigeFehler((r.json && r.json.meldung) || 'Rückgängig nicht möglich – bitte erneut versuchen');
             }

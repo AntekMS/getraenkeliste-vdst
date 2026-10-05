@@ -6,6 +6,7 @@ use App\Filters\AnmeldungFilter;
 use App\Filters\GeraetFilter;
 use App\Filters\KeinTabletFilter;
 use App\Filters\RechtFilter;
+use App\Filters\TabletCsrfFilter;
 use CodeIgniter\Config\Filters as BaseFilters;
 use CodeIgniter\Filters\Cors;
 use CodeIgniter\Filters\CSRF;
@@ -34,6 +35,7 @@ class Filters extends BaseFilters
         'recht'         => RechtFilter::class,
         'tablet'        => GeraetFilter::class,
         'kein_tablet'   => KeinTabletFilter::class,
+        'tablet_csrf'   => TabletCsrfFilter::class,
         'toolbar'       => DebugToolbar::class,
         'honeypot'      => Honeypot::class,
         'invalidchars'  => InvalidChars::class,
@@ -81,7 +83,7 @@ class Filters extends BaseFilters
     public array $globals = [
         'before' => [
             // 'honeypot',
-            'csrf',
+            'csrf' => ['except' => ['tablet/waehlen/*', 'tablet/pin/*', 'tablet/buchen', 'tablet/rueckgaengig', 'tablet/fertig']],
             // 'invalidchars',
         ],
         'after' => [

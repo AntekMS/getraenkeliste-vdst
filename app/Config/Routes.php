@@ -10,7 +10,17 @@ $routes->post('login', 'AuthController::login', ['filter' => 'kein_tablet']);
 
 $routes->get('tablet/freischalten', 'TabletController::freischaltenForm', ['filter' => 'tablet:frei']);
 $routes->post('tablet/freischalten', 'TabletController::freischalten', ['filter' => 'tablet:frei']);
-$routes->get('tablet', 'TabletController::index', ['filter' => 'tablet']);
+// Tablet-Routen sind vom globalen csrf ausgenommen (Config\Filters); tablet_csrf leitet bei Formularfehlern zur Namensauswahl.
+$routes->group('tablet', ['filter' => ['tablet', 'tablet_csrf']], static function (RouteCollection $routes): void {
+    $routes->get('', 'TabletController::index');
+    $routes->post('waehlen/(:num)', 'TabletController::waehlen/$1');
+    $routes->get('pin/(:num)', 'TabletController::pinForm/$1');
+    $routes->post('pin/(:num)', 'TabletController::pinPruefen/$1');
+    $routes->get('buchen', 'TabletController::buchenSeite');
+    $routes->post('buchen', 'TabletController::buchen');
+    $routes->post('rueckgaengig', 'TabletController::rueckgaengig');
+    $routes->post('fertig', 'TabletController::fertig');
+});
 
 $routes->group('', ['filter' => 'angemeldet:frei'], static function (RouteCollection $routes): void {
     $routes->post('logout', 'AuthController::logout');

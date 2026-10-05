@@ -1115,3 +1115,99 @@ tfoot.table-light {
         display: none !important;
     }
 }
+
+/* Tablet (Querformat 1280x800): breite Seite, Namenskacheln, PIN-Tastatur */
+.login-breit .login-container {
+    max-width: 1180px;
+}
+
+.namen-raster {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: .75rem;
+}
+
+.namen-raster[hidden] {
+    display: none;
+}
+
+.namen-kachel-form[hidden] {
+    display: none;
+}
+
+.namen-kachel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .25rem;
+    width: 100%;
+    min-height: 5rem;
+    padding: .75rem;
+    text-align: center;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--grau-900);
+    background: var(--surface);
+    border: 2px solid var(--grau-200);
+    border-radius: var(--radius);
+    box-shadow: var(--schatten-sm);
+}
+
+button.namen-kachel:hover,
+button.namen-kachel:focus-visible {
+    border-color: var(--vdst-rot);
+}
+
+.namen-kachel-gesperrt {
+    opacity: .55;
+    box-shadow: none;
+}
+
+.namen-kachel-hinweis {
+    font-size: .8rem;
+    font-weight: 400;
+    color: var(--grau-600);
+}
+
+.namen-werkzeuge {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    align-items: center;
+}
+
+.namen-werkzeuge .form-control {
+    flex: 1 1 16rem;
+}
+
+.pin-formular {
+    max-width: 22rem;
+    margin: 0 auto;
+}
+
+.pin-anzeige {
+    text-align: center;
+    font-size: 2rem;
+    letter-spacing: .5rem;
+}
+
+.pin-tastatur {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: .75rem;
+}
+
+.pin-taste {
+    min-height: 4.25rem;
+    font-size: 1.75rem;
+    font-weight: 600;
+}
+
+.tablet-kopf {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}

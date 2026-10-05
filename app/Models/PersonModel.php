@@ -164,6 +164,40 @@ class PersonModel extends Model
     }
 
     /**
+     * Namenskacheln des Tablets. `zuletzt` = die 12 aktiven Mitglieder mit der jüngsten Buchung
+     * (MAX(gebucht_at) über alle Buchungen auf ihr Konto, auch stornierte; Personen ohne Buchung fehlen dort).
+     *
+     * @return array{fest: list<array<string, mixed>>, zuletzt: list<array<string, mixed>>, alle: list<array<string, mixed>>}
+     */
+    public function tabletKacheln(): array
+    {
+        $auswahl = 'p.id, p.anzeigename, p.gruppe, (p.pin_hash IS NOT NULL) AS hat_pin';
+
+        $fest = $this->db->query(
+            "SELECT {$auswahl} FROM personen p WHERE p.typ = 'sammelkonto' AND p.archiviert_at IS NULL
+             AND p.anzeigename IN ('Couleur', 'Bund') ORDER BY p.anzeigename = 'Bund', p.anzeigename",
+        )->getResultArray();
+
+        $zuletzt = $this->db->query(
+            "SELECT {$auswahl} FROM personen p
+             JOIN (SELECT konto_id, MAX(gebucht_at) AS zuletzt FROM buchungen GROUP BY konto_id) b ON b.konto_id = p.id
+             WHERE p.typ = 'mitglied' AND p.archiviert_at IS NULL
+             ORDER BY b.zuletzt DESC, p.anzeigename LIMIT 12",
+        )->getResultArray();
+
+        $alle = $this->db->query(
+            "SELECT {$auswahl} FROM personen p WHERE p.typ = 'mitglied' AND p.archiviert_at IS NULL ORDER BY p.anzeigename, p.id",
+        )->getResultArray();
+
+        $normal = static fn (array $zeilen): array => array_map(
+            static fn (array $z): array => ['id' => (int) $z['id'], 'anzeigename' => $z['anzeigename'], 'gruppe' => $z['gruppe'], 'hat_pin' => (bool) $z['hat_pin']],
+            $zeilen,
+        );
+
+        return ['fest' => $normal($fest), 'zuletzt' => $normal($zuletzt), 'alle' => $normal($alle)];
+    }
+
+    /**
      * @param array<string, mixed> $person
      */
     public function istAktiv(array $person): bool

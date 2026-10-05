@@ -169,7 +169,7 @@ final class TabletFreischaltungTest extends DbTestCase
             $antwort = $this->get('tablet');
 
             $antwort->assertOK();
-            $antwort->assertSee('Tablet bereit');
+            $antwort->assertSee('Wer bist du?');
             $cookie = $antwort->response()->getCookie('gl_geraet');
             $this->assertSame($token, $cookie->getValue());
             $this->assertGreaterThan(time() + 399 * 86400, $cookie->getExpiresTimestamp());

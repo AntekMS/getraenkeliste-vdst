@@ -4,7 +4,7 @@
     <title><?= $this->renderSection('title') ?> | VDSt Getränkeliste</title>
     <?= $this->include('layouts/kopf') ?>
 </head>
-<body class="login-page">
+<body class="login-page <?= $this->renderSection('seitenklasse') ?>">
 <div class="login-container">
     <div class="login-header">
         <div>

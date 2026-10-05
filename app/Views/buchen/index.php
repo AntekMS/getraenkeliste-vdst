@@ -1,14 +1,32 @@
-<?= $this->extend('layouts/main') ?>
+<?php $tablet = ($modus ?? 'web') === 'tablet'; ?>
+<?= $this->extend($tablet ? 'layouts/einfach' : 'layouts/main') ?>
 
 <?= $this->section('title') ?>Buchen<?= $this->endSection() ?>
 
+<?php if ($tablet): ?>
+<?= $this->section('seitenklasse') ?>login-breit<?= $this->endSection() ?>
+<?php endif; ?>
+
 <?= $this->section('content') ?>
-<div id="buchen-app" data-buchen-url="<?= esc(base_url('buchen'), 'attr') ?>"
-     data-rueckgaengig-url="<?= esc(base_url('buchen/rueckgaengig'), 'attr') ?>"
+<div id="buchen-app" data-buchen-url="<?= esc(base_url($tablet ? 'tablet/buchen' : 'buchen'), 'attr') ?>"
+     data-rueckgaengig-url="<?= esc(base_url($tablet ? 'tablet/rueckgaengig' : 'buchen/rueckgaengig'), 'attr') ?>"
+<?php if ($tablet): ?>
+     data-fertig-url="<?= esc(base_url('tablet/fertig'), 'attr') ?>" data-timeout-s="<?= (int) $timeoutS ?>"
+<?php endif; ?>
      data-vorgang-id="<?= esc($vorgangId, 'attr') ?>"
      data-csrf-token="<?= esc(csrf_hash(), 'attr') ?>">
 
-    <h1 class="h3 mb-3">Buchen</h1>
+    <?php if ($tablet): ?>
+        <div class="tablet-kopf">
+            <h1 class="h3 mb-0"><i class="bi bi-person-circle" aria-hidden="true"></i> <?= esc($kontoName) ?></h1>
+            <form action="<?= esc(base_url('tablet/fertig'), 'attr') ?>" method="post" class="js-fertig-form">
+                <?= csrf_field() ?>
+                <button type="submit" class="btn btn-outline-vdst btn-lg"><i class="bi bi-x-lg" aria-hidden="true"></i> Abbrechen</button>
+            </form>
+        </div>
+    <?php else: ?>
+        <h1 class="h3 mb-3">Buchen</h1>
+    <?php endif; ?>
 
     <?php if ($bereiche === []): ?>
         <div class="alert alert-info">Zurzeit gibt es keine buchbaren Artikel.</div>
@@ -51,6 +69,7 @@
         <section class="buchen-warenkorb mt-4" aria-labelledby="warenkorb-titel">
             <h2 class="h5" id="warenkorb-titel"><i class="bi bi-cart3" aria-hidden="true"></i> Warenkorb</h2>
 
+            <?php if (! $tablet): ?>
             <div class="mb-3">
                 <div class="btn-group" role="group" aria-label="Buchen für">
                     <input type="radio" class="btn-check" name="konto" id="konto-ich" value="ich" checked>
@@ -61,6 +80,7 @@
                     <label class="btn btn-outline-vdst" for="konto-bund">Bund</label>
                 </div>
             </div>
+            <?php endif; ?>
 
             <p class="text-muted mb-2 js-leer">Noch nichts ausgewählt.</p>
             <ul class="list-unstyled mb-2 js-positionen" hidden></ul>
@@ -82,11 +102,14 @@
             <button type="button" class="btn btn-outline-vdst btn-sm js-rueckgaengig">
                 <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Rückgängig
             </button>
+            <?php if ($tablet): ?>
+                <p class="mb-0 mt-2 small js-zurueck-info" hidden>Zurück zur Namensauswahl in <span class="js-zurueck-sekunden"></span> s</p>
+            <?php endif; ?>
         </section>
     <?php endif; ?>
 </div>
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>
-<script src="<?= base_url('js/buchen.js') ?>?v=2"></script>
+<script src="<?= base_url('js/buchen.js') ?>?v=3"></script>
 <?= $this->endSection() ?>
