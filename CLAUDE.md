@@ -39,8 +39,19 @@ Bisher nur das Gerüst:
 - `app/Config/` — angepasst: `App` (Europe/Berlin, Locale `de`, kein `index.php` in URLs),
   `Security` (CSRF `session`), `Session`, `Cookie`, `Filters` (`csrf` global), `Database`
   (liest `DB_HOST/DB_NAME/DB_USER/DB_PASS` aus der Compose-Umgebung)
+- `app/Database/Migrations/` — 000001 Grundtabellen (`bereiche`, `personen`, `person_rollen`,
+  `anmelde_tokens`, `einstellungen`, `protokoll`), 000002 `kategorien`/`artikel`, 000003 `buchungen`,
+  000004 `geraete`/`freischaltcodes`, 000005 Startdaten (Bereiche `getraenke` aktiv / `kiosk`
+  inaktiv, Sammelkonten Couleur/Bund, Einstellungs-Defaults, `inbetriebnahme_at` = jetzt).
+  Raw-SQL, InnoDB, utf8mb4_unicode_ci, FKs `ON DELETE RESTRICT`. Migrationen referenzieren
+  **keine** App-Klassen (Konstanten werden wiederholt; `MigrationTest` prüft sie gegen die App).
+- `app/Models/` — CI4-Models (`array`, `$useTimestamps`): `PersonModel` (`rollen`,
+  `findeAktivNachBenutzername`, `sammelkontoId`, `istAktiv`), `BereichModel::aktive`,
+  `AnmeldeTokenModel::loescheFuerPerson`, `ArtikelModel::buchbar/findeBuchbar`, dazu schlanke
+  Models für Kategorie, Buchung, Gerät, Freischaltcode, Einstellung, Protokoll, PersonRolle.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
-  Test frisch gegen `getraenkeliste_test`)
+  Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
+  `artikelAnlegen`, `alsAngemeldet`, `csrf` (Passwort-Hashes mit Kosten 4 für Tempo)
 - `docker/mysql-init/01-testdb.sql` — legt die Testdatenbank an (nur beim ersten Start des
   MySQL-Volumes; bei bestehendem Volume manuell nachholen)
 
