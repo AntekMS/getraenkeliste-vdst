@@ -6,6 +6,8 @@ use App\Models\ArtikelModel;
 use App\Models\KategorieModel;
 use App\Models\PersonModel;
 use App\Models\PersonRolleModel;
+use App\Libraries\Uhr;
+use CodeIgniter\Config\Services;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\DatabaseTestTrait;
 use CodeIgniter\Test\FeatureTestTrait;
@@ -82,6 +84,23 @@ abstract class DbTestCase extends CIUnitTestCase
         return (int) (new ArtikelModel())->insert(array_merge([
             'name' => 'Helles', 'einheit' => '0,5 l', 'preis_cent' => 150,
         ], $werte), true);
+    }
+
+    /**
+     * Fixiert „jetzt“ für `service('uhr')`, z. B. '2026-10-05 12:00:00' (Europe/Berlin).
+     */
+    protected function uhrStellen(string $zeit): void
+    {
+        Services::injectMock('uhr', new Uhr($zeit));
+    }
+
+    /**
+     * Shared Services (Uhr-Mock, Einstellungs-Cache) dürfen nicht in den nächsten Test lecken.
+     */
+    protected function tearDown(): void
+    {
+        parent::tearDown();
+        $this->resetServices();
     }
 
     protected function alsAngemeldet(int $personId): static
