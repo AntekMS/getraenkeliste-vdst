@@ -137,6 +137,40 @@ final class KontoTest extends DbTestCase
 
         $this->assertTrue(password_verify('neuesPasswort1', $this->person($id)['passwort_hash']));
         $this->assertSame(0, $this->tokenAnzahl($id));
+        $this->assertTrue(session()->didRegenerate);
+    }
+
+    public function test_einrichten_lehnt_unveraendertes_einmalpasswort_ab(): void
+    {
+        $id  = $this->personAnlegen(['passwort_wechsel_erzwingen' => 1, 'pin' => null]);
+        $alt = $this->person($id)['passwort_hash'];
+
+        $antwort = $this->alsAngemeldet($id)->post('konto/einrichten', [
+            ...$this->csrf(),
+            'passwort_neu' => 'geheim123', 'passwort_wiederholen' => 'geheim123',
+            'pin' => '4711', 'pin_wiederholen' => '4711',
+        ]);
+
+        $antwort->assertRedirectTo(site_url('konto/einrichten'));
+        $this->assertSame('Das neue Passwort muss sich vom bisherigen unterscheiden.', session()->getFlashdata('error'));
+        $person = $this->person($id);
+        $this->assertSame($alt, $person['passwort_hash']);
+        $this->assertSame(1, (int) $person['passwort_wechsel_erzwingen']);
+        $this->assertNull($person['pin_hash']);
+    }
+
+    public function test_passwort_aendern_lehnt_gleiches_passwort_ab(): void
+    {
+        $id  = $this->personAnlegen();
+        $alt = $this->person($id)['passwort_hash'];
+
+        $this->alsAngemeldet($id)->post('konto/passwort', [
+            ...$this->csrf(), 'passwort_aktuell' => 'geheim123',
+            'passwort_neu' => 'geheim123', 'passwort_wiederholen' => 'geheim123',
+        ])->assertRedirectTo(site_url('konto'));
+
+        $this->assertSame('Das neue Passwort muss sich vom bisherigen unterscheiden.', session()->getFlashdata('error'));
+        $this->assertSame($alt, $this->person($id)['passwort_hash']);
     }
 
     public function test_passwort_aendern_mit_ungleichen_passwoertern_scheitert(): void

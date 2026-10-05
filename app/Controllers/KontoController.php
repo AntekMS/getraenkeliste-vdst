@@ -14,6 +14,7 @@ class KontoController extends BaseController
     private const MELDUNG_PASSWORT_UNGLEICH = 'Die Passwörter stimmen nicht überein.';
     private const MELDUNG_PIN_UNGLEICH      = 'Die PINs stimmen nicht überein.';
     private const MELDUNG_AKTUELL_FALSCH    = 'Das aktuelle Passwort ist falsch.';
+    private const MELDUNG_PASSWORT_GLEICH   = 'Das neue Passwort muss sich vom bisherigen unterscheiden.';
 
     public function einrichtenForm(): string|RedirectResponse
     {
@@ -40,7 +41,7 @@ class KontoController extends BaseController
 
         if ($offen['passwort']) {
             $passwort = (string) $this->request->getPost('passwort_neu');
-            $fehler[] = $this->passwortFehler($passwort, (string) $this->request->getPost('passwort_wiederholen'));
+            $fehler[] = $this->passwortFehler($passwort, (string) $this->request->getPost('passwort_wiederholen'), (string) $person['passwort_hash']);
             $daten    = $this->passwortDaten($passwort);
         }
 
@@ -75,7 +76,7 @@ class KontoController extends BaseController
         }
 
         $passwort = (string) $this->request->getPost('passwort_neu');
-        $fehler   = $this->passwortFehler($passwort, (string) $this->request->getPost('passwort_wiederholen'));
+        $fehler   = $this->passwortFehler($passwort, (string) $this->request->getPost('passwort_wiederholen'), (string) $person['passwort_hash']);
 
         if ($fehler !== null) {
             return redirect()->to(site_url('konto'))->with('error', $fehler);
@@ -114,10 +115,11 @@ class KontoController extends BaseController
         return password_verify((string) $this->request->getPost('passwort_aktuell'), (string) $person['passwort_hash']);
     }
 
-    private function passwortFehler(string $passwort, string $wiederholt): ?string
+    private function passwortFehler(string $passwort, string $wiederholt, string $bisherigerHash): ?string
     {
         return Anmelderegeln::passwortFehler($passwort)
-            ?? ($passwort !== $wiederholt ? self::MELDUNG_PASSWORT_UNGLEICH : null);
+            ?? ($passwort !== $wiederholt ? self::MELDUNG_PASSWORT_UNGLEICH : null)
+            ?? (password_verify($passwort, $bisherigerHash) ? self::MELDUNG_PASSWORT_GLEICH : null);
     }
 
     private function pinFehler(string $pin, string $wiederholt): ?string

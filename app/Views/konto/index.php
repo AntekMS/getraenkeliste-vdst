@@ -49,7 +49,7 @@
                 <input type="password" class="form-control" id="pin_wiederholen" name="pin_wiederholen"
                        inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="off" required>
             </div>
-            <button type="submit" class="btn btn-vdst">PIN ändern</button>
+            <button type="submit" class="btn btn-outline-vdst">PIN ändern</button>
         </form>
     </div>
 </div>
