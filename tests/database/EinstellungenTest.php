@@ -79,10 +79,17 @@ final class EinstellungenTest extends DbTestCase
         $this->assertSame(10, $e->int('storno_frist_min'));
     }
 
-    public function testCacheLecktNichtZwischenTests(): void
+    public function testServicesLeckenNichtZwischenTests(): void
     {
-        // Der Test davor hat die Tabelle auf 99 gesetzt; nach frischer Migration muss wieder 10 gelten.
-        $this->assertSame(10, service('einstellungen')->int('storno_frist_min'));
+        $this->uhrStellen('2001-02-03 04:05:06');
+        $einstellungen = service('einstellungen');
+
+        // Testwechsel simulieren
+        $this->tearDown();
+        $this->setUp();
+
+        $this->assertNotSame('2001-02-03 04:05:06', service('uhr')->jetzt()->format('Y-m-d H:i:s'));
+        $this->assertNotSame($einstellungen, service('einstellungen'));
     }
 
     public function testUhrStellenFixiertJetzt(): void
