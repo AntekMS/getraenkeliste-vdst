@@ -128,6 +128,20 @@ Aufbau bisher:
   Protokoll `preis_geaendert` (alt/neu `preis_cent`) getrennt von `geaendert`. **Sortieren (`verschiebe`) nicht protokolliert**; `Sortierung::tausche`
   + lückenlose Neunummerierung (robust gegen Gleichstände), Rand = No-op. `Transaktion`-Trait (`transaktion()` mit transException) in Person-/Kategorie-/ArtikelModel.
 
+- Tablets (`TabletController`, `Admin\TabletsController`, `Libraries\Geraete` = Service `geraete`): Admin erzeugt unter
+  `admin/tablets` einen 8-stelligen Freischaltcode (`FreischaltcodeModel::erzeuge`, `random_int`, 15 Min gültig, DB nur
+  sha256; Klartext nur als Flash `freischaltcode`, Protokoll `freischaltcode_erzeugt` ohne Code). `tablet/freischalten`
+  (ohne Login; Felder `code`, `name`): Eingabe ohne Leerzeichen; `FreischaltcodeModel::loeseEin` = bedingtes UPDATE
+  (`eingeloest_at IS NULL AND gueltig_bis >= jetzt`, `affectedRows() === 1`) in einer `Transaktion` mit dem Geräte-Insert
+  → Code einmalig, auch bei Parallelität. Einheitliche Meldung „Code ungültig oder abgelaufen.“. Token = 32 Byte hex,
+  Cookie `gl_geraet` (httponly, Lax, `Cookie::$secure`, 400 Tage), DB nur sha256. Filter `tablet` (`GeraetFilter`):
+  `before` setzt Request-Zustand, `after` setzt das Cookie bei **jeder** Antwort neu (gleitend, auch bei Redirects, ohne
+  `withCookies`); Argument `frei` (Freischaltseite) leitet freigeschaltete Tablets zu `tablet`. Gesperrtes Tablet auf
+  Tablet-Routen: 403 `tablet/gesperrt`. Nicht-Tablet-Routen: `angemeldet` und `kein_tablet` (nur `login`) leiten ein
+  **gültiges, nicht gesperrtes** Geräte-Cookie zu `tablet`; ein gesperrtes/unbekanntes Cookie zählt als „kein Gerät“
+  (normaler Login möglich). `tablet` ist bis Task 15 ein Platzhalter. Admin: umbenennen, sperren (kein Entsperren),
+  Protokoll `umbenannt`/`gesperrt`. **Bekannte Grenze Stufe 1:** keine Drosselung der Code-Eingabe (10^8 Codes, 15 Min).
+
 ## Konventionen & Invarianten
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token

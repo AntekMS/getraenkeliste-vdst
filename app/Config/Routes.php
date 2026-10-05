@@ -5,8 +5,12 @@ use CodeIgniter\Router\RouteCollection;
 /** @var RouteCollection $routes */
 $routes->addRedirect('/', 'buchen');
 
-$routes->get('login', 'AuthController::loginForm');
-$routes->post('login', 'AuthController::login');
+$routes->get('login', 'AuthController::loginForm', ['filter' => 'kein_tablet']);
+$routes->post('login', 'AuthController::login', ['filter' => 'kein_tablet']);
+
+$routes->get('tablet/freischalten', 'TabletController::freischaltenForm', ['filter' => 'tablet:frei']);
+$routes->post('tablet/freischalten', 'TabletController::freischalten', ['filter' => 'tablet:frei']);
+$routes->get('tablet', 'TabletController::index', ['filter' => 'tablet']);
 
 $routes->group('', ['filter' => 'angemeldet:frei'], static function (RouteCollection $routes): void {
     $routes->post('logout', 'AuthController::logout');
@@ -42,6 +46,11 @@ $routes->group('admin', ['filter' => ['angemeldet', 'recht:admin'], 'namespace' 
     $routes->post('personen/(:num)/passwort-reset', 'PersonenController::passwortReset/$1');
     $routes->post('personen/(:num)/pin-reset', 'PersonenController::pinReset/$1');
     $routes->post('personen/(:num)/archivieren', 'PersonenController::archivieren/$1');
+
+    $routes->get('tablets', 'TabletsController::index');
+    $routes->post('tablets/code', 'TabletsController::codeErzeugen');
+    $routes->post('tablets/(:num)/umbenennen', 'TabletsController::umbenennen/$1');
+    $routes->post('tablets/(:num)/sperren', 'TabletsController::sperren/$1');
 
     $routes->get('stammdaten', 'StammdatenController::index');
     $routes->post('kategorien', 'StammdatenController::kategorieAnlegen');

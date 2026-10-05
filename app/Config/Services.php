@@ -5,6 +5,7 @@ namespace Config;
 use App\Libraries\Anmeldung;
 use App\Libraries\BuchungService;
 use App\Libraries\Einstellungen;
+use App\Libraries\Geraete;
 use App\Libraries\Protokollierer;
 use App\Libraries\Uhr;
 use CodeIgniter\Config\BaseService;
@@ -22,6 +23,15 @@ class Services extends BaseService
         }
 
         return new Anmeldung();
+    }
+
+    public static function geraete(bool $getShared = true): Geraete
+    {
+        if ($getShared) {
+            return static::getSharedInstance('geraete');
+        }
+
+        return new Geraete();
     }
 
     public static function uhr(bool $getShared = true): Uhr

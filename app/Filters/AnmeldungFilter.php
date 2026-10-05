@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filters;
 
 use App\Libraries\Anmeldung;
+use App\Libraries\Geraete;
 use App\Models\PersonModel;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
@@ -19,6 +20,11 @@ class AnmeldungFilter implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null)
     {
+        // Tablets erreichen nur `tablet/*` (gesperrtes/unbekanntes Geräte-Cookie zählt als kein Gerät).
+        if (service('geraete')->ausCookie($request->getCookie(Geraete::COOKIE)) !== null) {
+            return redirect()->to(site_url('tablet'));
+        }
+
         $anmeldung = service('anmeldung');
         $person    = $anmeldung->person();
 

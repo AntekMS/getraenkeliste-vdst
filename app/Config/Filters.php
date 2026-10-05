@@ -3,6 +3,8 @@
 namespace Config;
 
 use App\Filters\AnmeldungFilter;
+use App\Filters\GeraetFilter;
+use App\Filters\KeinTabletFilter;
 use App\Filters\RechtFilter;
 use CodeIgniter\Config\Filters as BaseFilters;
 use CodeIgniter\Filters\Cors;
@@ -30,6 +32,8 @@ class Filters extends BaseFilters
         'csrf'          => CSRF::class,
         'angemeldet'    => AnmeldungFilter::class,
         'recht'         => RechtFilter::class,
+        'tablet'        => GeraetFilter::class,
+        'kein_tablet'   => KeinTabletFilter::class,
         'toolbar'       => DebugToolbar::class,
         'honeypot'      => Honeypot::class,
         'invalidchars'  => InvalidChars::class,
