@@ -43,3 +43,12 @@ document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.js-theme-toggle').forEach(bindThemeToggle);
     syncThemeToggleIcons(document.documentElement.getAttribute('data-bs-theme'));
 });
+
+
+// Druck-Button (Opt-in über data-print), ohne Inline-Handler wegen CSP
+document.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-print]');
+    if (button) {
+        window.print();
+    }
+});

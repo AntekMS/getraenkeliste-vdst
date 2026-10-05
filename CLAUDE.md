@@ -103,7 +103,7 @@ Aufbau bisher:
 - Views: `layouts/main.php` (Sidebar, „Verwaltung“ nur für `admin`), `layouts/einfach.php`
   (standalone: Login, Pflichtseite, Tablet), Partials `layouts/kopf.php` (Theme-Skript, CSS/CDN) und
   `layouts/meldungen.php` (Flash `success`/`error`). `public/css/app.css` + `img/vdst-logo.svg`
-  **unverändert** aus dem Kassensystem; `public/js/app.js` nur Theme-Toggle + `js-auto-dismiss`.
+  aus dem Kassensystem (plus `@media print` am Ende von app.css); `public/js/app.js`: Theme-Toggle, `js-auto-dismiss`, `data-print` (Drucken).
 - `php spark admin:anlegen` — fragt Vorname, Nachname, Benutzername, Passwort (2x) ab, prüft mit
   `Anmelderegeln`, ruft `PersonModel::legeAdminAn` (Mitglied, aktiv, Rolle admin, PIN leer).
 - `codeigniter4/translations` liefert deutsche Framework-Meldungen (Locale `de`); eigene Texte sind Literale.
@@ -111,6 +111,15 @@ Aufbau bisher:
   `didRegenerate`. Login-POSTs in Feature-Tests: `withSession(['csrf_test_name'=>…])->post('login', [...csrf(), …])`.
 - `docker/mysql-init/01-testdb.sql` — legt die Testdatenbank an (nur beim ersten Start des
   MySQL-Volumes; bei bestehendem Volume manuell nachholen)
+
+- Admin Personen (`/admin/*`, Filter `angemeldet` + `recht:admin`, Namespace `App\Controllers\Admin`): `PersonenController` (Liste mit Filter
+  gruppe/archiviert, Anlegen, Bearbeiten + Rollen-Checkboxen, `passwort-reset`, `pin-reset`, `archivieren`, `einmalpasswoerter`),
+  `PersonenImportController` (CSV: `vorschau` legt die geparsten Zeilen in die Session `import_zeilen`, `ausfuehren` prüft Benutzername/Name
+  in der Transaktion erneut und überspringt inzwischen Vergebene). `CsvPersonenParser` rein (BOM, Windows-1252, CRLF, Leerzeilen).
+  Sammelkonten sind in der Admin-Personenverwaltung 404. Admin kann sich nicht selbst archivieren oder die Admin-Rolle entziehen.
+  **Einmal-Passwörter nur als Flash `einmalpasswoerter` (PRG), nie im Protokoll** (Protokoll kennt nur `passwort_reset` ohne Werte).
+  `PersonModel::transaktion()` = Transaktion mit `transException(true)` (R12), `legeMitgliedAn`, `mitglieder`, `benutzernameVergeben`.
+  Upload-Prüfung ohne `isValid()` (Tests setzen `service('superglobals')->setFilesArray`).
 
 ## Konventionen & Invarianten
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).

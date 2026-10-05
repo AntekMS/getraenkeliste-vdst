@@ -1105,3 +1105,13 @@ tfoot.table-light {
 .buchen-bestaetigung {
     max-width: 32rem;
 }
+
+/* Druckansicht (Einmal-Passwort-Liste): Navigation und Bedienelemente ausblenden */
+@media print {
+    .app-sidebar,
+    .app-topbar,
+    .no-print,
+    .alert {
+        display: none !important;
+    }
+}

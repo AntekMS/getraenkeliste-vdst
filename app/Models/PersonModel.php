@@ -76,6 +76,100 @@ class PersonModel extends Model
     }
 
     /**
+     * Mitglieder (keine Sammelkonten) für die Admin-Liste.
+     *
+     * @param ?string $gruppe aktiv|ah|sonstige oder null für alle
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function mitglieder(?string $gruppe, bool $archiviert): array
+    {
+        $builder = $this->where('typ', 'mitglied');
+
+        if ($gruppe !== null) {
+            $builder->where('gruppe', $gruppe);
+        }
+
+        $builder = $archiviert ? $builder->where('archiviert_at IS NOT NULL') : $builder->where('archiviert_at', null);
+
+        return $builder->orderBy('nachname')->orderBy('vorname')->findAll();
+    }
+
+    /**
+     * Legt ein Mitglied mit Einmal-Passwort an (Passwortwechsel beim ersten Login erzwungen, keine PIN).
+     * Läuft innerhalb der Transaktion des Aufrufers; Fehler werfen dort eine Exception.
+     *
+     * @param array{vorname: string, nachname: string, anzeigename: string, gruppe: string, benutzername: string} $daten
+     */
+    public function legeMitgliedAn(array $daten, string $einmalPasswort): int
+    {
+        $id = $this->insert([
+            ...$daten,
+            'typ'                        => 'mitglied',
+            'passwort_hash'              => password_hash($einmalPasswort, PASSWORD_DEFAULT),
+            'passwort_wechsel_erzwingen' => 1,
+        ], true);
+
+        if ($id === false) {
+            throw new RuntimeException('Person konnte nicht angelegt werden.');
+        }
+
+        return (int) $id;
+    }
+
+    public function benutzernameVergeben(string $benutzername, ?int $ausserPersonId = null): bool
+    {
+        $builder = $this->where('benutzername', $benutzername);
+
+        if ($ausserPersonId !== null) {
+            $builder->where('id !=', $ausserPersonId);
+        }
+
+        return $builder->first() !== null;
+    }
+
+    /**
+     * @return list<string> mb_strtolower("vorname nachname") aller Mitglieder (auch archivierte)
+     */
+    public function vorhandeneNamen(): array
+    {
+        return array_map(
+            static fn (array $p): string => mb_strtolower($p['vorname'] . ' ' . $p['nachname']),
+            $this->where('typ', 'mitglied')->findAll(),
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function vorhandeneBenutzernamen(): array
+    {
+        return array_column($this->select('benutzername')->where('benutzername IS NOT NULL')->findAll(), 'benutzername');
+    }
+
+    /**
+     * Transaktion, in der jeder fehlgeschlagene Query eine Exception wirft (CI4 wirft in
+     * Transaktionen sonst nicht und committet Teilergebnisse). Bei jedem Fehler: Rollback, Exception weiter.
+     */
+    public function transaktion(callable $arbeit): void
+    {
+        $this->db->transException(true);
+        $this->db->transBegin();
+
+        try {
+            $arbeit();
+            $this->db->transCommit();
+        } catch (\Throwable $e) {
+            $this->db->transRollback();
+
+            throw $e;
+        } finally {
+            $this->db->transException(false);
+            $this->db->resetTransStatus();
+        }
+    }
+
+    /**
      * @param 'Couleur'|'Bund' $name
      */
     public function sammelkontoId(string $name): int
