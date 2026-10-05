@@ -238,8 +238,10 @@ class BuchungService
             throw $e;
         } finally {
             $db->transException(false);
+            $db->resetTransStatus(); // strikter Modus: sonst bleibt transStatus nach einem Fehler dauerhaft false
         }
     }
+
     /**
      * Prüft Form und Mengen der Positionen und addiert doppelte Artikel.
      *
