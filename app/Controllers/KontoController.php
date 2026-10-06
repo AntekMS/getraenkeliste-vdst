@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Libraries\Anmelderegeln;
+use App\Libraries\Anmeldung;
 use App\Models\AnmeldeTokenModel;
 use App\Models\PersonModel;
 use CodeIgniter\HTTP\RedirectResponse;
@@ -70,9 +71,10 @@ class KontoController extends BaseController
     public function passwortAendern(): RedirectResponse
     {
         $person = service('anmeldung')->person();
+        $fehler = $this->aktuellesPasswortFehler($person);
 
-        if (! $this->aktuellesPasswortStimmt($person)) {
-            return redirect()->to(site_url('konto'))->with('error', self::MELDUNG_AKTUELL_FALSCH);
+        if ($fehler !== null) {
+            return redirect()->to(site_url('konto'))->with('error', $fehler);
         }
 
         $passwort = (string) $this->request->getPost('passwort_neu');
@@ -90,9 +92,10 @@ class KontoController extends BaseController
     public function pinAendern(): RedirectResponse
     {
         $person = service('anmeldung')->person();
+        $fehler = $this->aktuellesPasswortFehler($person);
 
-        if (! $this->aktuellesPasswortStimmt($person)) {
-            return redirect()->to(site_url('konto'))->with('error', self::MELDUNG_AKTUELL_FALSCH);
+        if ($fehler !== null) {
+            return redirect()->to(site_url('konto'))->with('error', $fehler);
         }
 
         $pin    = (string) $this->request->getPost('pin');
@@ -108,11 +111,17 @@ class KontoController extends BaseController
     }
 
     /**
+     * Aktuelles Passwort mit Login-Sperre prüfen: ein falsches zählt als Login-Fehlversuch.
+     *
      * @param array<string, mixed> $person
      */
-    private function aktuellesPasswortStimmt(array $person): bool
+    private function aktuellesPasswortFehler(array $person): ?string
     {
-        return password_verify((string) $this->request->getPost('passwort_aktuell'), (string) $person['passwort_hash']);
+        return match (service('anmeldung')->passwortPruefen($person, (string) $this->request->getPost('passwort_aktuell'))) {
+            Anmeldung::PRUEFUNG_OK       => null,
+            Anmeldung::PRUEFUNG_GESPERRT => Anmeldung::MELDUNG_GESPERRT,
+            default                      => self::MELDUNG_AKTUELL_FALSCH,
+        };
     }
 
     private function passwortFehler(string $passwort, string $wiederholt, string $bisherigerHash): ?string
@@ -162,6 +171,8 @@ class KontoController extends BaseController
             (new AnmeldeTokenModel())->loescheFuerPerson($personId);
             service('anmeldung')->merkCookieLoeschen();
             session()->regenerate(true);
+            // Diese Sitzung bleibt angemeldet, alle anderen (alter Fingerabdruck) enden beim nächsten Request.
+            service('anmeldung')->fingerabdruckAktualisieren($daten['passwort_hash']);
         }
     }
 }

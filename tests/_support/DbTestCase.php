@@ -6,6 +6,7 @@ use App\Models\ArtikelModel;
 use App\Models\KategorieModel;
 use App\Models\PersonModel;
 use App\Models\PersonRolleModel;
+use App\Libraries\Anmeldung;
 use App\Libraries\Uhr;
 use CodeIgniter\Config\Services;
 use CodeIgniter\Test\CIUnitTestCase;
@@ -105,7 +106,19 @@ abstract class DbTestCase extends CIUnitTestCase
 
     protected function alsAngemeldet(int $personId): static
     {
-        return $this->withSession(['person_id' => $personId, 'csrf_test_name' => 'test-token']);
+        return $this->withSession([...$this->angemeldeteSitzung($personId), 'csrf_test_name' => 'test-token']);
+    }
+
+    /**
+     * Session-Daten einer angemeldeten Person (inkl. Fingerabdruck des aktuellen Passwort-Hashes).
+     *
+     * @return array<string, mixed>
+     */
+    protected function angemeldeteSitzung(int $personId): array
+    {
+        $hash = (new PersonModel())->find($personId)['passwort_hash'] ?? null;
+
+        return ['person_id' => $personId, Anmeldung::SITZUNG_FINGERABDRUCK => Anmeldung::fingerabdruck($hash)];
     }
 
     /**

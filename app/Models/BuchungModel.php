@@ -10,6 +10,8 @@ use DateTimeImmutable;
 
 class BuchungModel extends Model
 {
+    use Transaktion;
+
     protected $table         = 'buchungen';
     protected $returnType    = 'array';
     protected $useTimestamps = true;

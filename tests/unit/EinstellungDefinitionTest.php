@@ -24,7 +24,9 @@ final class EinstellungDefinitionTest extends CIUnitTestCase
     public function test_weitere_werte(): void
     {
         $this->assertIsString(EinstellungDefinition::validiere('tablet_timeout_s', '9'));
-        $this->assertNull(EinstellungDefinition::validiere('tablet_timeout_s', '600'));
+        $this->assertNull(EinstellungDefinition::validiere('tablet_timeout_s', '300'));
+        // Höchstens so lang wie die Tablet-Sitzung (300 s), sonst liefe die Sitzung vor dem Leerlauf-Timeout ab.
+        $this->assertIsString(EinstellungDefinition::validiere('tablet_timeout_s', '301'));
         $this->assertIsString(EinstellungDefinition::validiere('erinnerung_tage', '366'));
         $this->assertNull(EinstellungDefinition::validiere('erinnerung_tage', '31'));
         $this->assertIsString(EinstellungDefinition::validiere('vereinsname', ''));

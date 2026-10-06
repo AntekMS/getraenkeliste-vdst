@@ -63,22 +63,29 @@ Aufbau (Stufe 1 komplett):
   `gebucht_at` je Vorgang, aktueller Preis; Unique-Verletzung im Wettlauf → Rollback + gespeichertes Ergebnis. Doppelte
   Artikel werden addiert (Summe ≤ 99), max. 30 Positionen. `storniereVorgang/storniereBuchung` prüfen Doppel-Storno, Frist
   (`storno_frist_min` ab `gebucht_at`) und `ZeitraumErmittler::istEingefroren` (Stichtag in Stufe 1 noch `null`); **wer**
-  stornieren darf, entscheidet der Controller. `zusammenfassung()` ist statisch/rein. **Transaktionen laufen über `transaktion()` mit `transException(true)`: CI4 wirft in Transaktionen sonst nicht, ein fehlgeschlagener Query würde still Teilergebnisse committen.** Storno-Update mit `storniert_at IS NULL` + `affectedRows`. Ergebnis enthält `storniert` (Replay eines inzwischen stornierten Vorgangs).
+  stornieren darf, entscheidet der Controller. `zusammenfassung()` ist statisch/rein. **Transaktionen laufen über `BuchungModel::transaktion()` (Trait `Transaktion`) mit `transException(true)`: CI4 wirft in Transaktionen sonst nicht, ein fehlgeschlagener Query würde still Teilergebnisse committen.** Storno-Update mit `storniert_at IS NULL` + `affectedRows`. Ergebnis enthält `storniert` (Replay eines inzwischen stornierten Vorgangs).
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
-  `artikelAnlegen`, `alsAngemeldet`, `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
+  `artikelAnlegen`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
   `tearDown` setzt alle Services zurück, damit Mocks/Einstellungs-Cache nicht lecken) (Passwort-Hashes mit Kosten 4 für Tempo)
 - `app/Libraries/Anmeldung.php` (Service `anmeldung()`) — Login am eigenen Gerät:
-  `pruefePasswort` prüft **zuerst** die Sperre (`PinSperre`, `login_fehlversuche`/`login_gesperrt_bis`),
-  dann das Passwort; unbekannte/archivierte Person = dieselbe Meldung wie falsches Passwort.
-  `anmelden` (`regenerate(true)`), `abmelden` (Session leeren), `person()` (nicht archiviert, sonst
-- „Angemeldet bleiben“: Cookie `gl_merken` = `<selector 24 hex>:<validator 64 hex>` (90 Tage, httponly, Lax, `secure` aus ConfigCookie),
+  `pruefePasswort` → `passwortPruefen($person, $passwort)` (auch für das aktuelle Passwort auf `konto/passwort` und `konto/pin`):
+  beansprucht den Versuch **vor** `password_verify` atomar über `Versuchszaehler('login')`, dann Passwort, Erfolg → Zähler zurück;
+  unbekannte/archivierte Person = dieselbe Meldung wie falsches Passwort (einmal `password_verify` gegen `DUMMY_HASH`, Timing).
+  `anmelden` (`regenerate(true)`, setzt `person_id` + `passwort_fingerabdruck` = sha256 des `passwort_hash`), `abmelden` (Session leeren),
+  `person()` (nicht archiviert **und** Fingerabdruck passt zum aktuellen Hash, sonst Abmeldung → Filter leitet zu `login`), `rollen()`.
+  Passwort-Reset durch den Admin beendet so alle offenen Sitzungen; eigener Wechsel (`konto/passwort`, `konto/einrichten`) ruft
+  `fingerabdruckAktualisieren()` → nur die aktuelle Sitzung bleibt angemeldet. Tests: `alsAngemeldet`/`angemeldeteSitzung` setzen den Fingerabdruck.
+- `app/Libraries/Versuchszaehler.php` — atomarer Fehlversuch-Zähler für Präfix `login`/`pin` (Spalten `<präfix>_fehlversuche`/`_gesperrt_bis`):
+  `beanspruchen()` = ein UPDATE `… WHERE id = ? AND (gesperrt_bis IS NULL OR gesperrt_bis <= jetzt)` (SET-Reihenfolge: Sperre aus altem Zähler,
+  dann Zähler; 5. Versuch → Sperre jetzt + 5 min, Zähler 0); 0 Zeilen = gesperrt (Zähler unverändert). `gesperrt()`, `erfolg()` (zurücksetzen).
+  `PinSperre` liefert nur noch Schwelle/Dauer und `istGesperrt`.
+- „Angemeldet bleiben“: Cookie `gl_merken` = `<selector 24 hex>:<validator 64 hex>` (90 Tage, httponly, Lax, `secure` explizit aus `Config\Cookie::$secure` wie `gl_geraet`),
   DB nur `sha256(validator)` (`AnmeldeTokenModel::erzeuge/rotiere/loescheCookie/loescheFuerPerson`). Filter `angemeldet` stellt
   ohne Session per `Anmeldung::ausCookieAnmelden` her (rotiert; archivierte Person → alle Tokens weg; falscher Validator → alle
   Tokens der Person weg). **Cookie-Änderungen wendet `AnmeldungFilter::after()` auf die gesendete Antwort an; `->withCookies()` nur für Redirects aus `before()` und ungefilterte Routen (login)** (RedirectResponse ist eine neue
   Response). Archivieren/Passwort-Reset müssen `loescheFuerPerson` + `merkCookieLoeschen` aufrufen. Tests setzen den Cookie über
   `service('superglobals')->setCookie(...)`, nicht `$_COOKIE`.
-  Abmeldung → Filter leitet zu `login`), `rollen()`.
 - `app/Filters/` — `angemeldet` (AnmeldungFilter, per Routengruppe in `Routes.php`, nicht global) und
   `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`); `csrf` bleibt global.
 - Routen: `GET/POST login`, `POST logout` (kein GET → 404), `/` → Redirect `buchen`,
@@ -126,7 +133,7 @@ Aufbau (Stufe 1 komplett):
   bearbeitbar, Entarchivieren gibt es nicht. Kategorie archivieren archiviert Artikel nicht (sind aber nicht buchbar). Artikel-Umzug nur in
   aktive, nicht archivierte Kategorien, danach ans Ende (`naechsteSortierung`). Preis: `betrag_in_cent` (max. 7 Euro-Stellen), Preis 0 erlaubt;
   Protokoll `preis_geaendert` (alt/neu `preis_cent`) getrennt von `geaendert`. **Sortieren (`verschiebe`) nicht protokolliert**; `Sortierung::tausche`
-  + lückenlose Neunummerierung (robust gegen Gleichstände), Rand = No-op. `Transaktion`-Trait (`transaktion()` mit transException) in Person-/Kategorie-/ArtikelModel.
+  + lückenlose Neunummerierung (robust gegen Gleichstände), Rand = No-op. `Transaktion`-Trait (`transaktion()` mit transException) in Person-/Kategorie-/Artikel-/BuchungModel u. a.
 
 - Tablets (`TabletController`, `Admin\TabletsController`, `Libraries\Geraete` = Service `geraete`): Admin erzeugt unter
   `admin/tablets` einen 8-stelligen Freischaltcode (`FreischaltcodeModel::erzeuge`, `random_int`, 15 Min gültig, DB nur
@@ -150,8 +157,9 @@ Aufbau (Stufe 1 komplett):
   Login: `tablet_konto_id`, `tablet_seit`, `tablet_letzter_vorgang` (nie `person_id`); alle `tablet/*`-Routen nur hinter `tablet` + `tablet_csrf`
   (nicht `angemeldet`). Sitzung gilt höchstens 300 s ab `tablet_seit` (`uhr`), danach 401 `Sitzung abgelaufen …` bzw. Redirect zu `tablet`.
   `tablet/waehlen/{id}` (POST-Kachel): Sammelkonto → `tablet/buchen`; Mitglied ohne PIN/archiviert → zurück mit Meldung; sonst `tablet/pin/{id}`.
-  PIN: `PinSperre::istGesperrt` **vor** `password_verify` (gesperrt → abgelehnt, Zähler unverändert), 4–6 Ziffern, falsch → `nachFehlversuch`,
-  Erfolg → Zähler zurück; Einzel-`update` mit Rückgabeprüfung (fail closed). Buchen: `quelle='tablet'`, `geraet_id` aus Cookie, `gebucht_von_id` =
+  PIN: `Versuchszaehler('pin')->beanspruchen()` **vor** `password_verify` (gesperrt → abgelehnt, Zähler unverändert; atomar, kein
+  Lesen-und-Zurückschreiben), 4–6 Ziffern, falsch → „PIN falsch.“ bzw. Sperrmeldung, wenn dieser Versuch gesperrt hat;
+  Erfolg → `erfolg()` mit Rückgabeprüfung (fail closed). `tablet_timeout_s` (Einstellung) ist auf höchstens 300 s begrenzt (= Sitzungsdauer). Buchen: `quelle='tablet'`, `geraet_id` aus Cookie, `gebucht_von_id` =
   Person bzw. NULL bei Sammelkonto, `konto` im Body wird ignoriert; Rückgängig nur für `tablet_letzter_vorgang` (sonst 403). Gemeinsame
   JSON-Logik (Positionsprüfung, Antwortformat) in Trait `Controllers\Concerns\BuchungsAntworten` (auch `BuchenController`).
   `buchen/index.php` hat Modus `web|tablet` (Tablet: `layouts/einfach` mit Section `seitenklasse` = `login-breit`, `data-fertig-url`,
@@ -166,14 +174,16 @@ Aufbau (Stufe 1 komplett):
   `admin/protokoll`: Filter `person`, `tabelle`, `von`, `bis` (ungültige Daten werden ignoriert), neueste zuerst, 50 je Seite
   (`ProtokollModel::gefiltert()` + `paginate`; Seite wird explizit aus `?page=` gelesen (nur Ziffern, auf 1..letzte Seite begrenzt; Array-Parameter werden ignoriert); Pager-Template `bootstrap_full` in `Views/pagers`,
   `Config\Pager`), alt/neu als escapte Schlüssel-Wert-Liste, Person „System“ bei `person_id` NULL.
-- `tests/feature/ZugriffsschutzTest` — Routenmatrix: **jede** Route (feste Liste, bei neuen Routen ergänzen!) × anonym/mitglied/admin/tablet;
+- `tests/feature/ZugriffsschutzTest` — Routenmatrix: **jede** Route (feste Liste `ROUTEN`, bei neuen Routen ergänzen — `test_routenliste_entspricht_den_registrierten_routen`
+  gleicht sie mit `service('routes')->getRoutes()` aller Verben ab und wird sonst rot) × anonym/mitglied/admin/tablet;
   ein Test je Fall (Session-CSRF/Cookie leben nicht über mehrere Requests), `$refresh = false` + `uniqid`-Benutzernamen für Tempo (~20 s statt ~3 min).
   `php spark routes` zeigt für `verschieben/(hoch|runter)` fälschlich `<unknown>`-Filter (Anzeigefehler, die Filter greifen; der Test belegt es).
 
 ## Konventionen & Invarianten
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
+  `CI_ENVIRONMENT` defaultet in `docker-compose.yml` auf `development`; auf dem Pi muss `.env` `CI_ENVIRONMENT=production` setzen (ohne Leerzeichen, Compose liest die Datei mit; README).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token
-  muss idempotent bleiben); `Security::$redirect = true` — Formular-POST ohne gültiges
+  muss idempotent bleiben; festgenagelt in `ZugriffsschutzTest::test_csrf_token_wird_nach_post_nicht_regeneriert`); `Security::$redirect = true` — Formular-POST ohne gültiges
   CSRF-Token wird zurückgeleitet statt 403 (JSON/AJAX bekommt 403).
 - Session läuft nach 8 Stunden ab (`Session::$expiration = 28800`).
 - `phpunit.xml.dist` trägt das Test-DB-Passwort als Literal (= Compose-Default
@@ -182,7 +192,9 @@ Aufbau (Stufe 1 komplett):
 - **Idempotenz:** jede Buchung trägt eine `vorgang_id` (UUIDv4, serverseitig erzeugt, wandert mit dem Formular); Wiederholung liefert das gespeicherte Ergebnis.
 - **Zeit:** nie `new DateTime()`/`time()` in App-Code, immer `service('uhr')->jetzt()` (Tests fixieren sie mit `uhrStellen`).
 - **Cookies (R10):** Cookie-Änderungen (`gl_merken`, `gl_geraet`) setzt der Filter in `after()` auf die gesendete Antwort; `->withCookies()` nur bei Redirects aus `before()` und ungefilterten Routen. Geräte-Cookie wird gleitend bei jeder Tablet-Antwort erneuert.
-- **Transaktionen (R12):** mehrstufige Schreibvorgänge laufen in `transaktion()` (Trait mit `transException(true)`); sonst committet CI4 Teilergebnisse still.
+- **Transaktionen (R12):** mehrstufige Schreibvorgänge laufen in `transaktion()` (Trait `App\Models\Transaktion` mit `transException(true)`, stellt den vorherigen Wert wieder her); sonst committet CI4 Teilergebnisse still. **Einzige Implementierung** — keine eigene Kopie in Services (BuchungService nutzt `BuchungModel::transaktion()`).
+- **Fehlversuche (Login/PIN):** nur über `Versuchszaehler` (atomares UPDATE, Versuch vor dem Hash-Vergleich beansprucht). Nie Zähler lesen, +1 rechnen und zurückschreiben — parallele Requests umgingen sonst die 5er-Sperre. Ein falsches aktuelles Passwort im Konto zählt als Login-Fehlversuch.
+- **Sitzung ↔ Passwort:** Session trägt `passwort_fingerabdruck` (sha256 des `passwort_hash`); `Anmeldung::person()` meldet bei Abweichung ab. Wer `passwort_hash` der eigenen Sitzung ändert, ruft `fingerabdruckAktualisieren()`; Reset durch Admin beendet alle Sitzungen der Person.
 - **Tablet-CSRF-Ausnahme:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Config\Filters`) und nur über `tablet` + `tablet_csrf` erreichbar; neue Tablet-Routen gehören in die Routengruppe `tablet`. Alle übrigen POSTs behalten `csrf` (+ `Security::$regenerate = false`).
 - **Protokoll:** nie Hashes, Passwörter, PINs, Freischalt-/Einmalcodes (`Protokollierer` entfernt `*_hash`-Schlüssel; Klartext-Geheimnisse gehören nicht hinein). Sortieren und eigene Buchungen/Stornos werden nicht protokolliert.
 - **Rechte:** Berechtigung nur über Filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`) in `Routes.php`; neue Route ⇒ `ZugriffsschutzTest` erweitern.

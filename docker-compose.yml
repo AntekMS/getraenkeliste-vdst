@@ -16,6 +16,7 @@ services:
       - DB_NAME=getraenkeliste
       - DB_USER=getraenkeuser
       - DB_PASS=${DB_PASS:-getraenkepass123}
+      # Default nur für lokale Entwicklung; auf dem Pi setzt .env CI_ENVIRONMENT=production (README).
       - CI_ENVIRONMENT=${CI_ENVIRONMENT:-development}
       - TZ=Europe/Berlin
     networks:

@@ -6,6 +6,7 @@ namespace Tests\Feature;
 
 use App\Models\FreischaltcodeModel;
 use CodeIgniter\Exceptions\PageNotFoundException;
+use CodeIgniter\Router\Router;
 use CodeIgniter\Test\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\DbTestCase;
@@ -49,43 +50,46 @@ final class ZugriffsschutzTest extends DbTestCase
     }
 
     /**
+     * Alle Routen (Methode, Beispielpfad, Klasse). Muss genau `service('routes')` entsprechen (siehe Vollständigkeitstest).
+     */
+    private const ROUTEN = [
+        ['GET', 'login', 'offen'], ['POST', 'login', 'offen'],
+        ['GET', 'tablet/freischalten', 'frei_tablet'], ['POST', 'tablet/freischalten', 'frei_tablet'],
+        ['GET', 'tablet', 'tablet'], ['GET', 'tablet/pin/999999', 'tablet'], ['GET', 'tablet/buchen', 'tablet'],
+        ['POST', 'tablet/waehlen/999999', 'tablet'], ['POST', 'tablet/pin/999999', 'tablet'], ['POST', 'tablet/buchen', 'tablet'],
+        ['POST', 'tablet/rueckgaengig', 'tablet'], ['POST', 'tablet/fertig', 'tablet'],
+        ['POST', 'logout', 'abmelden'],
+        ['GET', 'konto/einrichten', 'angemeldet'], ['POST', 'konto/einrichten', 'angemeldet'],
+        ['GET', 'konto', 'angemeldet'], ['POST', 'konto/passwort', 'angemeldet'], ['POST', 'konto/pin', 'angemeldet'],
+        ['GET', 'buchen', 'angemeldet'], ['POST', 'buchen', 'angemeldet'], ['POST', 'buchen/rueckgaengig', 'angemeldet'],
+        ['GET', 'meine-buchungen', 'angemeldet'], ['POST', 'meine-buchungen/storno/999999', 'angemeldet'],
+        ['GET', 'admin/personen', 'admin'], ['GET', 'admin/personen/neu', 'admin'], ['POST', 'admin/personen', 'admin'],
+        ['GET', 'admin/personen/einmalpasswoerter', 'admin'], ['GET', 'admin/personen/import', 'admin'],
+        ['POST', 'admin/personen/import/vorschau', 'admin'], ['POST', 'admin/personen/import/ausfuehren', 'admin'],
+        ['GET', 'admin/personen/999999', 'admin'], ['POST', 'admin/personen/999999', 'admin'],
+        ['POST', 'admin/personen/999999/passwort-reset', 'admin'], ['POST', 'admin/personen/999999/pin-reset', 'admin'],
+        ['POST', 'admin/personen/999999/archivieren', 'admin'],
+        ['GET', 'admin/tablets', 'admin'], ['POST', 'admin/tablets/code', 'admin'],
+        ['POST', 'admin/tablets/999999/umbenennen', 'admin'], ['POST', 'admin/tablets/999999/sperren', 'admin'],
+        ['GET', 'admin/stammdaten', 'admin'], ['POST', 'admin/kategorien', 'admin'], ['POST', 'admin/kategorien/999999', 'admin'],
+        ['POST', 'admin/kategorien/999999/verschieben/hoch', 'admin'], ['POST', 'admin/kategorien/999999/verschieben/runter', 'admin'],
+        ['POST', 'admin/kategorien/999999/archivieren', 'admin'],
+        ['GET', 'admin/artikel/neu', 'admin'], ['GET', 'admin/artikel/999999', 'admin'], ['POST', 'admin/artikel', 'admin'],
+        ['POST', 'admin/artikel/999999', 'admin'], ['POST', 'admin/artikel/999999/verschieben/hoch', 'admin'],
+        ['POST', 'admin/artikel/999999/verschieben/runter', 'admin'], ['POST', 'admin/artikel/999999/archivieren', 'admin'],
+        ['GET', 'admin/einstellungen', 'admin'], ['POST', 'admin/einstellungen', 'admin'],
+        ['GET', 'admin/protokoll', 'admin'],
+        ['GET', '/', 'umleitung'],
+    ];
+
+    /**
      * @return array<string, array{0: string, 1: string, 2: string, 3: string}>
      */
     public static function routenmatrix(): array
     {
-        $routen = [
-            ['GET', 'login', 'offen'], ['POST', 'login', 'offen'],
-            ['GET', 'tablet/freischalten', 'frei_tablet'], ['POST', 'tablet/freischalten', 'frei_tablet'],
-            ['GET', 'tablet', 'tablet'], ['GET', 'tablet/pin/999999', 'tablet'], ['GET', 'tablet/buchen', 'tablet'],
-            ['POST', 'tablet/waehlen/999999', 'tablet'], ['POST', 'tablet/pin/999999', 'tablet'], ['POST', 'tablet/buchen', 'tablet'],
-            ['POST', 'tablet/rueckgaengig', 'tablet'], ['POST', 'tablet/fertig', 'tablet'],
-            ['POST', 'logout', 'abmelden'],
-            ['GET', 'konto/einrichten', 'angemeldet'], ['POST', 'konto/einrichten', 'angemeldet'],
-            ['GET', 'konto', 'angemeldet'], ['POST', 'konto/passwort', 'angemeldet'], ['POST', 'konto/pin', 'angemeldet'],
-            ['GET', 'buchen', 'angemeldet'], ['POST', 'buchen', 'angemeldet'], ['POST', 'buchen/rueckgaengig', 'angemeldet'],
-            ['GET', 'meine-buchungen', 'angemeldet'], ['POST', 'meine-buchungen/storno/999999', 'angemeldet'],
-            ['GET', 'admin/personen', 'admin'], ['GET', 'admin/personen/neu', 'admin'], ['POST', 'admin/personen', 'admin'],
-            ['GET', 'admin/personen/einmalpasswoerter', 'admin'], ['GET', 'admin/personen/import', 'admin'],
-            ['POST', 'admin/personen/import/vorschau', 'admin'], ['POST', 'admin/personen/import/ausfuehren', 'admin'],
-            ['GET', 'admin/personen/999999', 'admin'], ['POST', 'admin/personen/999999', 'admin'],
-            ['POST', 'admin/personen/999999/passwort-reset', 'admin'], ['POST', 'admin/personen/999999/pin-reset', 'admin'],
-            ['POST', 'admin/personen/999999/archivieren', 'admin'],
-            ['GET', 'admin/tablets', 'admin'], ['POST', 'admin/tablets/code', 'admin'],
-            ['POST', 'admin/tablets/999999/umbenennen', 'admin'], ['POST', 'admin/tablets/999999/sperren', 'admin'],
-            ['GET', 'admin/stammdaten', 'admin'], ['POST', 'admin/kategorien', 'admin'], ['POST', 'admin/kategorien/999999', 'admin'],
-            ['POST', 'admin/kategorien/999999/verschieben/hoch', 'admin'], ['POST', 'admin/kategorien/999999/verschieben/runter', 'admin'],
-            ['POST', 'admin/kategorien/999999/archivieren', 'admin'],
-            ['GET', 'admin/artikel/neu', 'admin'], ['GET', 'admin/artikel/999999', 'admin'], ['POST', 'admin/artikel', 'admin'],
-            ['POST', 'admin/artikel/999999', 'admin'], ['POST', 'admin/artikel/999999/verschieben/hoch', 'admin'],
-            ['POST', 'admin/artikel/999999/verschieben/runter', 'admin'], ['POST', 'admin/artikel/999999/archivieren', 'admin'],
-            ['GET', 'admin/einstellungen', 'admin'], ['POST', 'admin/einstellungen', 'admin'],
-            ['GET', 'admin/protokoll', 'admin'],
-            ['GET', '/', 'umleitung'],
-        ];
-
         $faelle = [];
 
-        foreach ($routen as [$methode, $pfad, $klasse]) {
+        foreach (self::ROUTEN as [$methode, $pfad, $klasse]) {
             foreach (['anonym', 'mitglied', 'admin', 'tablet'] as $akteur) {
                 $faelle["{$methode} {$pfad} als {$akteur}"] = [$methode, $pfad, $klasse, $akteur];
             }
@@ -107,7 +111,7 @@ final class ZugriffsschutzTest extends DbTestCase
                 $this->rolleGeben($person, 'admin');
             }
 
-            $sitzung['person_id'] = $person;
+            $sitzung = [...$sitzung, ...$this->angemeldeteSitzung($person)];
         }
 
         if ($akteur === 'tablet') {
@@ -166,6 +170,48 @@ final class ZugriffsschutzTest extends DbTestCase
                 $this->assertNotSame(site_url($verbotenesZiel), $ziel, "{$methode} {$pfad} als {$akteur}: Redirect nach {$verbotenesZiel}");
             }
         }
+    }
+
+    /**
+     * Neue Route ohne Matrixeintrag (oder verwaister Eintrag) macht den Sweep unvollständig: dann rot.
+     */
+    public function test_routenliste_entspricht_den_registrierten_routen(): void
+    {
+        $sammlung    = service('routes')->loadRoutes();
+        $registriert = [];
+
+        foreach ([...Router::HTTP_METHODS, '*'] as $verb) {
+            foreach (array_keys($sammlung->getRoutes($verb, false)) as $muster) {
+                $registriert[] = [$verb, trim((string) $muster, '/')];
+            }
+        }
+
+        $passt = static fn (string $verb, string $muster, string $methode, string $pfad): bool => ($verb === '*' || $verb === $methode)
+            && preg_match('#\A' . $muster . '\z#u', trim($pfad, '/')) === 1;
+
+        foreach ($registriert as [$verb, $muster]) {
+            $treffer = array_filter(self::ROUTEN, static fn (array $r): bool => $passt($verb, $muster, $r[0], $r[1]));
+            $this->assertNotSame([], $treffer, "Route {$verb} {$muster} fehlt in der Zugriffsmatrix.");
+        }
+
+        foreach (self::ROUTEN as [$methode, $pfad]) {
+            $treffer = array_filter($registriert, static fn (array $r): bool => $passt($r[0], $r[1], $methode, $pfad));
+            $this->assertNotSame([], $treffer, "Matrixeintrag {$methode} {$pfad} hat keine Route.");
+        }
+    }
+
+    /**
+     * Review Focus 1: Das CSRF-Token bleibt pro Session gleich (mehrere Tabs/Formulare, Tablet-JSON nach Formular-POST).
+     */
+    public function test_csrf_token_wird_nach_post_nicht_regeneriert(): void
+    {
+        $this->assertFalse(config('Security')->regenerate);
+
+        $id = $this->personAnlegen(['benutzername' => uniqid('z', true)]);
+        $this->alsAngemeldet($id)->post('konto/pin', [...$this->csrf(), 'passwort_aktuell' => 'falsch', 'pin' => '1', 'pin_wiederholen' => '1'])
+            ->assertRedirectTo(site_url('konto'));
+
+        $this->assertSame('test-token', session('csrf_test_name'));
     }
 
     private function erwartung(string $klasse, string $akteur): string

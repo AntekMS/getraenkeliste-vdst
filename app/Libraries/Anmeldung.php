@@ -7,8 +7,6 @@ namespace App\Libraries;
 use App\Models\AnmeldeTokenModel;
 use App\Models\PersonModel;
 use CodeIgniter\HTTP\ResponseInterface;
-use DateTimeImmutable;
-use DateTimeZone;
 
 /**
  * Login am eigenen Gerät: Passwortprüfung mit Fehlversuch-Sperre und Sitzung.
@@ -20,56 +18,89 @@ final class Anmeldung
 
     public const MERK_COOKIE = 'gl_merken';
 
-    private const DATUMSFORMAT = 'Y-m-d H:i:s';
+    /** Session-Schlüssel: Fingerabdruck des Passwort-Hashes bei der Anmeldung (Passwortwechsel/-Reset beendet andere Sitzungen). */
+    public const SITZUNG_FINGERABDRUCK = 'passwort_fingerabdruck';
+
+    public const PRUEFUNG_OK       = 'ok';
+    public const PRUEFUNG_FALSCH   = 'falsch';
+    public const PRUEFUNG_GESPERRT = 'gesperrt';
+
+    /** Bcrypt-Hash ohne zugehöriges Passwort: unbekannte Benutzer kosten dieselbe Prüfzeit wie bekannte. */
+    private const DUMMY_HASH = '$2y$10$r6IHv5clgzpWCQFT/civUOBD087BsAsAJbEMvL3UOSqCqSEBpJdDy';
 
     /** @var ?array<string, mixed> Cookie-Änderung dieses Requests (setzen oder ['loeschen' => true]) */
     private ?array $merkAktion = null;
 
     /**
-     * Prüft die Sperre VOR dem Passwort: Solange gesperrt, wird auch das richtige Passwort
-     * abgelehnt und der Zähler nicht verändert. Unbekannte und archivierte Personen
-     * bekommen dieselbe Meldung wie ein falsches Passwort.
+     * Unbekannte und archivierte Personen bekommen dieselbe Meldung wie ein falsches Passwort.
+     * Sperre und Zähler: {@see passwortPruefen()}.
      *
      * @return array{ok: bool, person: ?array<string, mixed>, meldung: ?string}
      */
     public function pruefePasswort(string $benutzername, string $passwort): array
     {
         $name   = Anmelderegeln::benutzernameNormalisieren($benutzername);
-        $model  = new PersonModel();
-        $person = $name === null ? null : $model->findeAktivNachBenutzername($name);
+        $person = $name === null ? null : (new PersonModel())->findeAktivNachBenutzername($name);
 
         if ($person === null || $person['passwort_hash'] === null) {
-            return ['ok' => false, 'person' => null, 'meldung' => self::MELDUNG_FALSCH];
-        }
-
-        $jetzt = service('uhr')->jetzt();
-        $bis   = $person['login_gesperrt_bis'] === null
-            ? null
-            : new DateTimeImmutable($person['login_gesperrt_bis'], new DateTimeZone('Europe/Berlin'));
-
-        if (PinSperre::istGesperrt($bis, $jetzt)) {
-            return ['ok' => false, 'person' => null, 'meldung' => self::MELDUNG_GESPERRT];
-        }
-
-        if (! password_verify($passwort, $person['passwort_hash'])) {
-            $neu = PinSperre::nachFehlversuch((int) $person['login_fehlversuche'], $jetzt);
-            $model->update((int) $person['id'], [
-                'login_fehlversuche' => $neu['fehlversuche'],
-                'login_gesperrt_bis' => $neu['gesperrt_bis']?->format(self::DATUMSFORMAT),
-            ]);
+            password_verify($passwort, self::DUMMY_HASH);
 
             return ['ok' => false, 'person' => null, 'meldung' => self::MELDUNG_FALSCH];
         }
 
-        $model->update((int) $person['id'], ['login_fehlversuche' => 0, 'login_gesperrt_bis' => null]);
+        return match ($this->passwortPruefen($person, $passwort)) {
+            self::PRUEFUNG_OK       => ['ok' => true, 'person' => $person, 'meldung' => null],
+            self::PRUEFUNG_GESPERRT => ['ok' => false, 'person' => null, 'meldung' => self::MELDUNG_GESPERRT],
+            default                 => ['ok' => false, 'person' => null, 'meldung' => self::MELDUNG_FALSCH],
+        };
+    }
 
-        return ['ok' => true, 'person' => $person, 'meldung' => null];
+    /**
+     * Passwortprüfung mit Login-Sperre (Login und Bestätigung mit aktuellem Passwort im Konto).
+     * Der Versuch wird VOR dem Hash-Vergleich atomar beansprucht; solange gesperrt, wird auch das
+     * richtige Passwort abgelehnt und der Zähler nicht verändert.
+     *
+     * @param array<string, mixed> $person
+     *
+     * @return self::PRUEFUNG_*
+     */
+    public function passwortPruefen(array $person, string $passwort): string
+    {
+        $zaehler = new Versuchszaehler('login');
+
+        if (! $zaehler->beanspruchen((int) $person['id'], service('uhr')->jetzt())) {
+            return self::PRUEFUNG_GESPERRT;
+        }
+
+        if (! password_verify($passwort, (string) $person['passwort_hash'])) {
+            return self::PRUEFUNG_FALSCH;
+        }
+
+        $zaehler->erfolg((int) $person['id']);
+
+        return self::PRUEFUNG_OK;
+    }
+
+    public static function fingerabdruck(?string $passwortHash): string
+    {
+        return hash('sha256', (string) $passwortHash);
     }
 
     public function anmelden(int $personId): void
     {
         session()->regenerate(true);
-        session()->set('person_id', $personId);
+        session()->set([
+            'person_id'                 => $personId,
+            self::SITZUNG_FINGERABDRUCK => self::fingerabdruck((new PersonModel())->find($personId)['passwort_hash'] ?? null),
+        ]);
+    }
+
+    /**
+     * Nach eigenem Passwortwechsel: die aktuelle Sitzung bleibt gültig, alle anderen enden beim nächsten Request.
+     */
+    public function fingerabdruckAktualisieren(string $neuerPasswortHash): void
+    {
+        session()->set(self::SITZUNG_FINGERABDRUCK, self::fingerabdruck($neuerPasswortHash));
     }
 
     /**
@@ -157,6 +188,7 @@ final class Anmeldung
             'expire'   => AnmeldeTokenModel::GUELTIG_TAGE * 86400,
             'httponly' => true,
             'samesite' => 'Lax',
+            'secure'   => config('Cookie')->secure,
         ];
         response()->setCookie($this->merkAktion);
     }
@@ -168,7 +200,8 @@ final class Anmeldung
     }
 
     /**
-     * Aktuelle, nicht archivierte Person; sonst Abmeldung und null.
+     * Aktuelle, nicht archivierte Person, deren Passwort seit der Anmeldung nicht gewechselt/zurückgesetzt
+     * wurde (Fingerabdruck in der Session); sonst Abmeldung und null.
      *
      * @return ?array<string, mixed>
      */
@@ -183,7 +216,11 @@ final class Anmeldung
         $model  = new PersonModel();
         $person = $model->find((int) $id);
 
-        if ($person === null || ! $model->istAktiv($person)) {
+        if (
+            $person === null
+            || ! $model->istAktiv($person)
+            || ! hash_equals(self::fingerabdruck($person['passwort_hash']), (string) session(self::SITZUNG_FINGERABDRUCK))
+        ) {
             $this->abmelden();
 
             return null;

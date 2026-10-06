@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Libraries\Anmeldung;
 use App\Models\PersonModel;
 use CodeIgniter\Exceptions\PageNotFoundException;
 use Tests\Support\DbTestCase;
@@ -69,6 +70,65 @@ final class LoginTest extends DbTestCase
 
         $antwort->assertRedirectTo(site_url('buchen'));
         $this->assertNotNull(session('person_id'));
+    }
+
+    public function test_versuch_waehrend_sperre_laesst_zaehler_unveraendert(): void
+    {
+        $this->uhrStellen('2026-10-05 12:00:00');
+        $this->personAnlegen(['benutzername' => 'anna', 'login_fehlversuche' => 2, 'login_gesperrt_bis' => '2026-10-05 12:03:00']);
+
+        $this->loginPost(['benutzername' => 'anna', 'passwort' => 'falsch']);
+
+        $this->assertSame('Zu viele Fehlversuche. Bitte in 5 Minuten erneut versuchen.', session()->getFlashdata('error'));
+        $person = (new PersonModel())->findeAktivNachBenutzername('anna');
+        $this->assertSame(2, (int) $person['login_fehlversuche']);
+        $this->assertSame('2026-10-05 12:03:00', $person['login_gesperrt_bis']);
+    }
+
+    public function test_zaehler_aus_der_db_vier_naechster_fehlversuch_sperrt(): void
+    {
+        $this->uhrStellen('2026-10-05 12:00:00');
+        $id = $this->personAnlegen(['benutzername' => 'anna']);
+        db_connect()->table('personen')->where('id', $id)->update(['login_fehlversuche' => 4]);
+
+        $this->loginPost(['benutzername' => 'anna', 'passwort' => 'falsch']);
+
+        $person = (new PersonModel())->find($id);
+        $this->assertSame(0, (int) $person['login_fehlversuche']);
+        $this->assertSame('2026-10-05 12:05:00', $person['login_gesperrt_bis']);
+    }
+
+    public function test_login_legt_passwort_fingerabdruck_in_die_session(): void
+    {
+        $id = $this->personAnlegen(['benutzername' => 'anna']);
+
+        $this->loginPost(['benutzername' => 'anna', 'passwort' => 'geheim123']);
+
+        $hash = (new PersonModel())->find($id)['passwort_hash'];
+        $this->assertSame(hash('sha256', $hash), session(Anmeldung::SITZUNG_FINGERABDRUCK));
+    }
+
+    public function test_admin_passwort_reset_beendet_offene_session(): void
+    {
+        $id    = $this->personAnlegen();
+        $admin = $this->personAnlegen();
+        $this->rolleGeben($admin, 'admin');
+        $alteSitzung = [...$this->angemeldeteSitzung($id), ...$this->csrf()];
+
+        $this->withSession($alteSitzung)->get('buchen')->assertOK();
+
+        $this->alsAngemeldet($admin)->post("admin/personen/{$id}/passwort-reset", $this->csrf())
+            ->assertRedirectTo(site_url('admin/personen/einmalpasswoerter'));
+
+        $this->withSession($alteSitzung)->get('buchen')->assertRedirectTo(site_url('login'));
+        $this->assertNull(session('person_id'));
+    }
+
+    public function test_session_ohne_fingerabdruck_ist_abgemeldet(): void
+    {
+        $id = $this->personAnlegen();
+
+        $this->withSession(['person_id' => $id])->get('buchen')->assertRedirectTo(site_url('login'));
     }
 
     public function test_archivierte_person_kann_sich_nicht_anmelden(): void

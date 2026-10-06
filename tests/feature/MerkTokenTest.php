@@ -56,6 +56,22 @@ final class MerkTokenTest extends DbTestCase
         $this->assertStringNotContainsString($token['token_hash'], $cookie->getValue());
     }
 
+    public function test_merk_cookie_folgt_cookie_secure_einstellung(): void
+    {
+        $this->personAnlegen(['benutzername' => 'anna']);
+        $config         = config('Cookie');
+        $config->secure = true;
+
+        try {
+            $antwort = $this->withSession(['csrf_test_name' => 'test-token'])
+                ->post('login', [...$this->csrf(), 'benutzername' => 'anna', 'passwort' => 'geheim123', 'merken' => '1']);
+        } finally {
+            $config->secure = false;
+        }
+
+        $this->assertTrue($antwort->response()->getCookie('gl_merken')->isSecure());
+    }
+
     public function test_login_ohne_merken_setzt_kein_cookie(): void
     {
         $id = $this->personAnlegen(['benutzername' => 'anna']);

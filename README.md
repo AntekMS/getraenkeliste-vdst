@@ -23,9 +23,16 @@ docker exec getraenkeliste-web vendor/bin/phpunit
 Die Datei `.env` im Projektverzeichnis (nicht versioniert) **muss** setzen:
 
 ```
+CI_ENVIRONMENT=production
 app.baseURL = 'https://<hostname>/'
 cookie.secure = true
 ```
+
+`docker-compose.yml` setzt `CI_ENVIRONMENT` standardmäßig auf `development` (lokale Entwicklung:
+Fehlerseiten mit Stacktrace, Debug-Toolbar). Auf dem Pi **muss** die `.env` `CI_ENVIRONMENT=production`
+setzen (ohne Leerzeichen um `=`, weil Docker Compose dieselbe Datei für die Variablen-Ersetzung liest);
+sonst sieht jeder Besucher bei Fehlern Stacktraces mit Pfaden und SQL. Nach einer Änderung
+`docker compose up -d` (der Container übernimmt die Umgebung nur beim Neuerstellen).
 
 Ohne `app.baseURL` zeigen Redirects auf `http://localhost:8090/`. Ohne `cookie.secure = true` laufen
 Sitzungs-, „Angemeldet bleiben“- und Geräte-Cookie auch über unverschlüsselte Verbindungen.

@@ -8,7 +8,7 @@ use App\Controllers\Concerns\BuchungsAntworten;
 use App\Libraries\Anmeldung;
 use App\Libraries\BuchungService;
 use App\Libraries\Geraete;
-use App\Libraries\PinSperre;
+use App\Libraries\Versuchszaehler;
 use App\Models\ArtikelModel;
 use App\Models\PersonModel;
 use CodeIgniter\HTTP\RedirectResponse;
@@ -108,42 +108,31 @@ class TabletController extends BaseController
 
     public function pinPruefen(int $id): RedirectResponse
     {
-        $model  = new PersonModel();
         $person = $this->pinPerson($id);
 
         if ($person === null) {
             return $this->zurNamensauswahl(self::MELDUNG_NICHT_WAEHLBAR);
         }
 
-        $jetzt = service('uhr')->jetzt();
-        $bis   = $person['pin_gesperrt_bis'] === null
-            ? null
-            : new DateTimeImmutable($person['pin_gesperrt_bis'], new DateTimeZone('Europe/Berlin'));
+        $jetzt   = service('uhr')->jetzt();
+        $zaehler = new Versuchszaehler('pin');
 
-        // Sperre VOR dem Hash-Vergleich: gesperrt = auch die richtige PIN wird abgelehnt, Zähler bleibt.
-        if (PinSperre::istGesperrt($bis, $jetzt)) {
+        // Versuch VOR dem Hash-Vergleich atomar beanspruchen: gesperrt = auch die richtige PIN wird abgelehnt, Zähler bleibt.
+        if (! $zaehler->beanspruchen($id, $jetzt)) {
             return $this->zurNamensauswahl(self::MELDUNG_GESPERRT);
         }
 
         $pin = (string) $this->request->getPost('pin');
 
         if (preg_match('/^\d{4,6}$/', $pin) !== 1 || ! password_verify($pin, $person['pin_hash'])) {
-            $neu = PinSperre::nachFehlversuch((int) $person['pin_fehlversuche'], $jetzt);
-            $ok  = $model->update($id, [
-                'pin_fehlversuche' => $neu['fehlversuche'],
-                'pin_gesperrt_bis' => $neu['gesperrt_bis']?->format(self::DATUMSFORMAT),
-            ]);
-
-            if ($neu['gesperrt_bis'] !== null) {
+            if ($zaehler->gesperrt($id, $jetzt)) {
                 return $this->zurNamensauswahl(self::MELDUNG_GESPERRT);
             }
 
-            // Schlägt das Zählen fehl, bleibt die Anmeldung trotzdem verwehrt (fail closed).
-            return redirect()->to(site_url('tablet/pin/' . $id))
-                ->with('error', $ok === false ? 'PIN konnte nicht geprüft werden. Bitte erneut versuchen.' : self::MELDUNG_PIN_FALSCH);
+            return redirect()->to(site_url('tablet/pin/' . $id))->with('error', self::MELDUNG_PIN_FALSCH);
         }
 
-        if ($model->update($id, ['pin_fehlversuche' => 0, 'pin_gesperrt_bis' => null]) === false) {
+        if (! $zaehler->erfolg($id)) {
             return redirect()->to(site_url('tablet/pin/' . $id))->with('error', 'PIN konnte nicht geprüft werden. Bitte erneut versuchen.');
         }
 

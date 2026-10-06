@@ -70,7 +70,7 @@ final class AdminPersonenTest extends DbTestCase
         $this->assertNotNull($flash, 'Kein Einmal-Passwort im Flash.');
 
         return $this->withSession([
-            'person_id'            => $this->admin,
+            ...$this->angemeldeteSitzung($this->admin),
             'einmalpasswoerter'    => $flash,
             '__ci_vars'            => ['einmalpasswoerter' => 'new'],
         ])->get('admin/personen/einmalpasswoerter');
@@ -315,7 +315,7 @@ final class AdminPersonenTest extends DbTestCase
         $this->assertCount(4, $zeilen);
 
         $this->alsAngemeldet($this->admin)->withSession([
-            'person_id' => $this->admin, 'csrf_test_name' => 'test-token', 'import_zeilen' => $zeilen,
+            ...$this->angemeldeteSitzung($this->admin), 'csrf_test_name' => 'test-token', 'import_zeilen' => $zeilen,
         ])->post('admin/personen/import/ausfuehren', $this->csrf())->assertRedirectTo(site_url('admin/personen/einmalpasswoerter'));
 
         $personen = new PersonModel();
@@ -342,7 +342,7 @@ final class AdminPersonenTest extends DbTestCase
         $this->personAnlegen(['benutzername' => 'anna']); // inzwischen vergeben
 
         $this->alsAngemeldet($this->admin)->withSession([
-            'person_id' => $this->admin, 'csrf_test_name' => 'test-token', 'import_zeilen' => $zeilen,
+            ...$this->angemeldeteSitzung($this->admin), 'csrf_test_name' => 'test-token', 'import_zeilen' => $zeilen,
         ])->post('admin/personen/import/ausfuehren', $this->csrf());
 
         $this->assertSame(1, (new PersonModel())->where('benutzername', 'anna')->countAllResults());

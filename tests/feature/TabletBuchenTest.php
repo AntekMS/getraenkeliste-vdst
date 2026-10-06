@@ -253,6 +253,30 @@ final class TabletBuchenTest extends DbTestCase
         $this->assertSame($id, (int) session('tablet_konto_id'));
     }
 
+    public function test_pin_zaehler_atomar_aus_der_db(): void
+    {
+        $id = $this->personAnlegen();
+        db_connect()->table('personen')->where('id', $id)->update(['pin_fehlversuche' => 4]);
+
+        $this->formular("tablet/pin/{$id}", ['pin' => '0000'])->assertRedirectTo(site_url('tablet'));
+
+        $person = (new PersonModel())->find($id);
+        $this->assertSame(0, (int) $person['pin_fehlversuche']);
+        $this->assertSame('2026-10-05 12:05:00', $person['pin_gesperrt_bis']);
+        $this->assertSame('Zu viele Fehlversuche. Bitte in 5 Minuten erneut versuchen.', session()->getFlashdata('error'));
+    }
+
+    public function test_pin_waehrend_sperre_laesst_zaehler_unveraendert(): void
+    {
+        $id = $this->personAnlegen(['pin_fehlversuche' => 2, 'pin_gesperrt_bis' => '2026-10-05 12:03:00']);
+
+        $this->formular("tablet/pin/{$id}", ['pin' => '0000'])->assertRedirectTo(site_url('tablet'));
+
+        $person = (new PersonModel())->find($id);
+        $this->assertSame(2, (int) $person['pin_fehlversuche']);
+        $this->assertSame('2026-10-05 12:03:00', $person['pin_gesperrt_bis']);
+    }
+
     public function test_pin_format_wird_geprueft(): void
     {
         $id = $this->personAnlegen();

@@ -99,7 +99,7 @@ class BuchungService
         $model = new BuchungModel();
 
         try {
-            $this->transaktion(static function () use ($zeilen, $model, $jetzt): void {
+            $model->transaktion(static function () use ($zeilen, $model, $jetzt): void {
                 foreach ($zeilen as $zeile) {
                     $zeile['gebucht_at'] = $jetzt;
 
@@ -211,7 +211,7 @@ class BuchungService
     {
         $jetzt = service('uhr')->jetzt()->format(self::FORMAT);
 
-        $this->transaktion(static function () use ($ids, $stornoVonId, $jetzt): void {
+        (new BuchungModel())->transaktion(static function () use ($ids, $stornoVonId, $jetzt): void {
             foreach ($ids as $id) {
                 $builder = db_connect()->table('buchungen')
                     ->where('id', (int) $id)
@@ -230,29 +230,6 @@ class BuchungService
      */
     protected function vorDemSchreiben(string $vorgangId): void
     {
-    }
-
-    /**
-     * Transaktion, in der jeder fehlgeschlagene Query eine Exception wirft (CI4 wirft in
-     * Transaktionen sonst nicht und committet Teilergebnisse). Bei jedem Fehler: Rollback, Exception weiter.
-     */
-    private function transaktion(callable $arbeit): void
-    {
-        $db = db_connect();
-        $db->transException(true);
-        $db->transBegin();
-
-        try {
-            $arbeit();
-            $db->transCommit();
-        } catch (\Throwable $e) {
-            $db->transRollback();
-
-            throw $e;
-        } finally {
-            $db->transException(false);
-            $db->resetTransStatus(); // strikter Modus: sonst bleibt transStatus nach einem Fehler dauerhaft false
-        }
     }
 
     /**

@@ -9,9 +9,10 @@ namespace App\Libraries;
  */
 final class EinstellungDefinition
 {
+    // tablet_timeout_s höchstens 300 = maximale Dauer einer Tablet-Sitzung (TabletController::SITZUNG_MAX_S).
     public const DEFINITIONEN = [
         'storno_frist_min'  => ['label' => 'Storno-Frist (Minuten)', 'typ' => 'int', 'min' => 0, 'max' => 120, 'default' => '10', 'aenderbar' => true],
-        'tablet_timeout_s'  => ['label' => 'Tablet-Timeout (Sekunden)', 'typ' => 'int', 'min' => 10, 'max' => 600, 'default' => '30', 'aenderbar' => true],
+        'tablet_timeout_s'  => ['label' => 'Tablet-Timeout (Sekunden)', 'typ' => 'int', 'min' => 10, 'max' => 300, 'default' => '30', 'aenderbar' => true],
         'vereinsname'       => ['label' => 'Vereinsname', 'typ' => 'text', 'min' => 1, 'max' => 100, 'default' => 'Verein deutscher Studenten zu Erlangen', 'aenderbar' => true],
         'erinnerung_tage'   => ['label' => 'Erinnerung nach (Tagen)', 'typ' => 'int', 'min' => 1, 'max' => 365, 'default' => '31', 'aenderbar' => true],
         'inbetriebnahme_at' => ['label' => 'Inbetriebnahme', 'typ' => 'datum', 'default' => '', 'aenderbar' => false],

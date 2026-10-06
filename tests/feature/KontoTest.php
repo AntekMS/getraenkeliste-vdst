@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature;
 
+use App\Libraries\Anmeldung;
 use App\Models\AnmeldeTokenModel;
 use App\Models\PersonModel;
 use Tests\Support\DbTestCase;
@@ -217,6 +218,78 @@ final class KontoTest extends DbTestCase
         ]);
         $this->assertSame('Die PIN muss aus 4 bis 6 Ziffern bestehen.', session()->getFlashdata('error'));
         $this->assertSame($alt, $this->person($id)['pin_hash']);
+    }
+
+    public function test_falsches_aktuelles_passwort_zaehlt_als_login_fehlversuch(): void
+    {
+        $this->uhrStellen('2026-10-05 12:00:00');
+        $id = $this->personAnlegen();
+
+        $this->alsAngemeldet($id)->post('konto/passwort', [
+            ...$this->csrf(), 'passwort_aktuell' => 'falsch',
+            'passwort_neu' => 'neuesPasswort1', 'passwort_wiederholen' => 'neuesPasswort1',
+        ]);
+        $this->alsAngemeldet($id)->post('konto/pin', [
+            ...$this->csrf(), 'passwort_aktuell' => 'falsch', 'pin' => '987654', 'pin_wiederholen' => '987654',
+        ]);
+
+        $this->assertSame(2, (int) $this->person($id)['login_fehlversuche']);
+    }
+
+    public function test_login_sperre_gilt_auch_fuer_aktuelles_passwort(): void
+    {
+        $this->uhrStellen('2026-10-05 12:00:00');
+        $id  = $this->personAnlegen(['login_gesperrt_bis' => '2026-10-05 12:03:00']);
+        $alt = $this->person($id)['passwort_hash'];
+
+        $this->alsAngemeldet($id)->post('konto/passwort', [
+            ...$this->csrf(), 'passwort_aktuell' => 'geheim123',
+            'passwort_neu' => 'neuesPasswort1', 'passwort_wiederholen' => 'neuesPasswort1',
+        ])->assertRedirectTo(site_url('konto'));
+
+        $this->assertSame('Zu viele Fehlversuche. Bitte in 5 Minuten erneut versuchen.', session()->getFlashdata('error'));
+        $this->assertSame($alt, $this->person($id)['passwort_hash']);
+    }
+
+    public function test_richtiges_aktuelles_passwort_setzt_login_zaehler_zurueck(): void
+    {
+        $id = $this->personAnlegen(['login_fehlversuche' => 3]);
+
+        $this->alsAngemeldet($id)->post('konto/pin', [
+            ...$this->csrf(), 'passwort_aktuell' => 'geheim123', 'pin' => '987654', 'pin_wiederholen' => '987654',
+        ])->assertRedirectTo(site_url('konto'));
+
+        $this->assertSame(0, (int) $this->person($id)['login_fehlversuche']);
+    }
+
+    public function test_eigener_passwortwechsel_haelt_aktuelle_session_und_beendet_andere(): void
+    {
+        $id            = $this->personAnlegen();
+        $andereSitzung = [...$this->angemeldeteSitzung($id), ...$this->csrf()];
+
+        $this->alsAngemeldet($id)->post('konto/passwort', [
+            ...$this->csrf(), 'passwort_aktuell' => 'geheim123',
+            'passwort_neu' => 'neuesPasswort1', 'passwort_wiederholen' => 'neuesPasswort1',
+        ])->assertRedirectTo(site_url('konto'));
+
+        $neu = session(Anmeldung::SITZUNG_FINGERABDRUCK);
+        $this->assertSame(hash('sha256', $this->person($id)['passwort_hash']), $neu);
+
+        $this->withSession(['person_id' => $id, Anmeldung::SITZUNG_FINGERABDRUCK => $neu])->get('konto')->assertOK();
+        $this->withSession($andereSitzung)->get('konto')->assertRedirectTo(site_url('login'));
+    }
+
+    public function test_einrichten_mit_passwort_aktualisiert_fingerabdruck(): void
+    {
+        $id = $this->personAnlegen(['passwort_wechsel_erzwingen' => 1, 'pin' => null]);
+
+        $this->alsAngemeldet($id)->post('konto/einrichten', [
+            ...$this->csrf(),
+            'passwort_neu' => 'neuesPasswort1', 'passwort_wiederholen' => 'neuesPasswort1',
+            'pin' => '4711', 'pin_wiederholen' => '4711',
+        ])->assertRedirectTo(site_url('buchen'));
+
+        $this->assertSame(hash('sha256', $this->person($id)['passwort_hash']), session(Anmeldung::SITZUNG_FINGERABDRUCK));
     }
 
     public function test_konto_seite_wird_angezeigt(): void
