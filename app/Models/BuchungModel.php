@@ -104,18 +104,6 @@ class BuchungModel extends Model
         return $this;
     }
 
-    /**
-     * Bereich einer Buchung (über Artikel und Kategorie) oder null, wenn es sie nicht gibt.
-     */
-    public function bereichVon(int $buchungId): ?int
-    {
-        $zeile = $this->db->table('buchungen b')->select('k.bereich_id')
-            ->join('artikel a', 'a.id = b.artikel_id')->join('kategorien k', 'k.id = a.kategorie_id')
-            ->where('b.id', $buchungId)->get()->getRowArray();
-
-        return $zeile === null ? null : (int) $zeile['bereich_id'];
-    }
-
     private function summe(BaseBuilder $builder): int
     {
         $zeile = $builder->select('SUM(b.menge * CAST(b.einzelpreis_cent AS SIGNED)) AS summe', false)

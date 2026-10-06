@@ -67,13 +67,9 @@ class BuchungenController extends BaseController
         $zurueck = redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/buchungen'));
         $buchung = (int) $id;
 
-        // Buchung eines anderen Bereichs: wie unbekannt (das Recht gilt nur für diesen Bereich).
-        if ((new BuchungModel())->bereichVon($buchung) !== (int) $bereich['id']) {
-            return $zurueck->with('error', 'Unbekannte Buchung.');
-        }
 
         try {
-            service('buchungen')->storniereAlsWart($buchung, $this->personId(), (string) $this->request->getPost('grund'));
+            service('buchungen')->storniereAlsWart($buchung, $this->personId(), (string) $this->request->getPost('grund'), (int) $bereich['id']);
         } catch (BuchungAbgelehnt $e) {
             return $zurueck->with('error', $e->getMessage());
         }

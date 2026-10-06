@@ -106,13 +106,25 @@ final class WartBuchungenTest extends DbTestCase
         $this->seeInDatabase('buchungen', ['id' => $id, 'storniert_at' => null]);
     }
 
-    public function test_wart_storno_einer_buchung_aus_anderem_bereich_abgelehnt(): void
-    {
-        $id = $this->buchung($this->konto, $this->artikel, '2026-10-05 10:00:00');
 
-        // Das Recht gilt je Bereich: der Getränkewart darf über die Kiosk-URL nichts (403 vom Filter).
-        $this->sende("wart/kiosk/buchungen/{$id}/storno", ['grund' => 'x'])->assertStatus(403);
-        $this->seeInDatabase('buchungen', ['id' => $id, 'storniert_at' => null]);
+    public function test_wart_storno_einer_kiosk_buchung_ueber_getraenke_url_abgelehnt(): void
+    {
+        $kioskKat = (int) (new \App\Models\KategorieModel())->insert(['bereich_id' => $this->bereichId('kiosk'), 'name' => 'Snacks'], true);
+        $riegel   = $this->artikelAnlegen(['kategorie_id' => $kioskKat, 'name' => 'Riegel']);
+        $id       = $this->buchung($this->konto, $riegel, '2026-10-05 10:00:00');
+
+        $this->sende("wart/getraenke/buchungen/{$id}/storno", ['grund' => 'x'])->assertRedirectTo(site_url('wart/getraenke/buchungen'));
+
+        $this->assertSame('Unbekannte Buchung.', session()->getFlashdata('error'));
+        $this->seeInDatabase('buchungen', ['id' => $id, 'storniert_at' => null, 'storno_grund' => null]);
+        $this->seeNumRecords(0, 'protokoll', ['aktion' => 'storniert']);
+    }
+
+    public function test_wart_storno_unbekannte_id_ist_kein_500(): void
+    {
+        $this->sende('wart/getraenke/buchungen/999999/storno', ['grund' => 'x'])->assertRedirectTo(site_url('wart/getraenke/buchungen'));
+
+        $this->assertSame('Unbekannte Buchung.', session()->getFlashdata('error'));
     }
 
     public function test_korrektur_minus_zwei_auf_couleur(): void

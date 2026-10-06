@@ -205,12 +205,18 @@ class BuchungService
      *
      * @param non-empty-list<array<string, mixed>> $zeilen Buchungszeilen inkl. bereich_id (alle desselben Vorgangs)
      */
-    private function storniere(array $zeilen, ?int $stornoVonId, ?string $grund = null, bool $alsWart = false): void
+    private function storniere(array $zeilen, ?int $stornoVonId, ?string $grund = null, bool $alsWart = false, ?int $bereichId = null): void
     {
         try {
-            (new BuchungModel())->transaktion(function () use ($zeilen, $stornoVonId, $grund, $alsWart): void {
+            (new BuchungModel())->transaktion(function () use ($zeilen, $stornoVonId, $grund, $alsWart, $bereichId): void {
                 $this->sperreBereiche(array_map(static fn (array $z): int => (int) $z['bereich_id'], $zeilen), $zeilen[0]['vorgang_id']);
                 $jetzt = service('uhr')->jetzt();
+
+                foreach ($zeilen as $z) {
+                    if ($bereichId !== null && (int) $z['bereich_id'] !== $bereichId) {
+                        throw new BuchungAbgelehnt('Unbekannte Buchung.');
+                    }
+                }
 
                 foreach ($zeilen as $z) {
                     if (service('zeitraeume')->istEingefroren(self::zeit($z['gebucht_at']), (int) $z['bereich_id'])) {
@@ -235,7 +241,7 @@ class BuchungService
                     }
 
                     if ($alsWart) {
-                        service('protokollierer')->schreibe((int) $stornoVonId, 'storniert', 'buchungen', (int) $z['id'], null, ['storniert_at' => $zeitpunkt, 'storno_grund' => $grund]);
+                        service('protokollierer')->schreibe((int) $stornoVonId, 'storniert', 'buchungen', (int) $z['id'], ['storniert_at' => null, 'storno_grund' => null], ['storniert_at' => $zeitpunkt, 'storno_grund' => $grund]);
                     }
                 }
             });
@@ -247,7 +253,7 @@ class BuchungService
     /**
      * Storno durch den Wart: ohne Storno-Frist (Einfrieren und Bereichssperre gelten), Grund Pflicht, protokolliert.
      */
-    public function storniereAlsWart(int $buchungId, int $wartId, string $grund): void
+    public function storniereAlsWart(int $buchungId, int $wartId, string $grund, int $bereichId): void
     {
         $grund = trim($grund);
 
@@ -269,18 +275,18 @@ class BuchungService
             throw new BuchungAbgelehnt('Bereits storniert.');
         }
 
-        $this->storniere([$buchung], $wartId, $grund, true);
+        $this->storniere([$buchung], $wartId, $grund, true, $bereichId);
     }
 
     /**
      * Korrekturbuchung des Warts (Konto, Artikel, ±Menge ≠ 0, Bemerkung Pflicht): aktueller Preis, neue Vorgangs-ID,
      * Bereichssperre als erste Anweisung der Transaktion, Einfrieren geprüft, protokolliert. Archivierte Artikel sind erlaubt.
      *
-     * @param ?int $bereichId wenn gesetzt, muss der Artikel zu diesem Bereich gehören
+     * @param int $bereichId der Artikel muss zu diesem Bereich gehören
      *
      * @return array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool, storniert: bool}
      */
-    public function bucheKorrektur(int $kontoId, int $artikelId, int $menge, string $bemerkung, int $wartId, ?int $bereichId = null): array
+    public function bucheKorrektur(int $kontoId, int $artikelId, int $menge, string $bemerkung, int $wartId, int $bereichId): array
     {
         $bemerkung = trim($bemerkung);
 
@@ -308,7 +314,7 @@ class BuchungService
             ->where('a.id', $artikelId)
             ->get()->getRowArray();
 
-        if ($artikel === null || ($bereichId !== null && (int) $artikel['bereich_id'] !== $bereichId)) {
+        if ($artikel === null || (int) $artikel['bereich_id'] !== $bereichId) {
             throw new BuchungAbgelehnt('Bitte einen Artikel dieses Bereichs wählen.');
         }
 

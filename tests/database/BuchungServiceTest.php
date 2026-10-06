@@ -507,8 +507,8 @@ final class BuchungServiceTest extends DbTestCase
             'buchen'          => static fn () => service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]),
             'storno vorgang'  => static fn () => service('buchungen')->storniereVorgang(self::V2, $konto),
             'storno buchung'  => static fn () => service('buchungen')->storniereBuchung($id, $konto),
-            'storno wart'     => static fn () => service('buchungen')->storniereAlsWart($id, $wart, 'Irrtum'),
-            'korrektur'       => static fn () => service('buchungen')->bucheKorrektur($konto, $helles, -1, 'Fehler', $wart),
+            'storno wart'     => static fn () => service('buchungen')->storniereAlsWart($id, $wart, 'Irrtum', $bereich),
+            'korrektur'       => static fn () => service('buchungen')->bucheKorrektur($konto, $helles, -1, 'Fehler', $wart, $bereich),
         ];
 
         $this->beiGesperrtemBereich($bereich, function () use ($versuche, $meldung): void {
@@ -527,6 +527,33 @@ final class BuchungServiceTest extends DbTestCase
         $this->seeNumRecords(0, 'protokoll', []);
     }
 
+    public function test_wart_methoden_lehnen_anderen_bereich_ab(): void
+    {
+        $konto  = $this->personAnlegen();
+        $wart   = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        $kiosk  = $this->bereichId('kiosk');
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $id = (int) db_connect()->table('buchungen')->where('vorgang_id', self::V1)->get()->getRow()->id;
+
+        try {
+            service('buchungen')->storniereAlsWart($id, $wart, 'x', $kiosk);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Unbekannte Buchung.', $e->getMessage());
+        }
+
+        try {
+            service('buchungen')->bucheKorrektur($konto, $helles, 1, 'x', $wart, $kiosk);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Bitte einen Artikel dieses Bereichs wählen.', $e->getMessage());
+        }
+
+        $this->seeNumRecords(1, 'buchungen', []);
+        $this->seeNumRecords(1, 'buchungen', ['storniert_at' => null]);
+    }
+
     public function test_wart_storno_ohne_grund_und_nach_frist(): void
     {
         $konto  = $this->personAnlegen();
@@ -537,13 +564,13 @@ final class BuchungServiceTest extends DbTestCase
         $this->uhrStellen('2026-10-07 12:00:00');
 
         try {
-            service('buchungen')->storniereAlsWart($id, $wart, '  ');
+            service('buchungen')->storniereAlsWart($id, $wart, '  ', $this->bereichId('getraenke'));
             $this->fail('Ablehnung erwartet');
         } catch (BuchungAbgelehnt $e) {
             $this->assertSame('Bitte einen Grund angeben.', $e->getMessage());
         }
 
-        service('buchungen')->storniereAlsWart($id, $wart, ' Doppelt gebucht ');
+        service('buchungen')->storniereAlsWart($id, $wart, ' Doppelt gebucht ', $this->bereichId('getraenke'));
         $this->seeInDatabase('buchungen', ['id' => $id, 'storniert_von_id' => $wart, 'storno_grund' => 'Doppelt gebucht', 'storniert_at' => '2026-10-07 12:00:00']);
         $this->seeInDatabase('protokoll', ['person_id' => $wart, 'aktion' => 'storniert', 'tabelle' => 'buchungen', 'datensatz_id' => $id]);
     }
