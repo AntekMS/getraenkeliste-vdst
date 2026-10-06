@@ -139,6 +139,11 @@ class PersonenController extends BaseController
     {
         $person = $this->mitglied($id);
 
+        // Der Passwort-Fingerabdruck in der Session würde den Admin vor der Anzeige des Einmal-Passworts abmelden.
+        if ($id === $this->adminId()) {
+            return redirect()->to(site_url("admin/personen/{$id}"))->with('error', 'Dein eigenes Passwort änderst du unter Konto.');
+        }
+
         if ($person['archiviert_at'] !== null) {
             return redirect()->to(site_url("admin/personen/{$id}"))->with('error', 'Archivierte Personen haben kein Passwort.');
         }

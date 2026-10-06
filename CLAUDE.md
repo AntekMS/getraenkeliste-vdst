@@ -123,7 +123,7 @@ Aufbau (Stufe 1 komplett):
   gruppe/archiviert, Anlegen, Bearbeiten + Rollen-Checkboxen, `passwort-reset`, `pin-reset`, `archivieren`, `einmalpasswoerter`),
   `PersonenImportController` (CSV: `vorschau` legt die geparsten Zeilen in die Session `import_zeilen`, `ausfuehren` prüft Benutzername/Name
   in der Transaktion erneut und überspringt inzwischen Vergebene). `CsvPersonenParser` rein (BOM, Windows-1252, CRLF, Leerzeilen).
-  Sammelkonten sind in der Admin-Personenverwaltung 404. Admin kann sich nicht selbst archivieren oder die Admin-Rolle entziehen.
+  Sammelkonten sind in der Admin-Personenverwaltung 404. Admin kann sich nicht selbst archivieren, die Admin-Rolle entziehen oder das eigene Passwort zurücksetzen (Link zu `konto`; PIN-Reset für sich selbst bleibt erlaubt).
   **Einmal-Passwörter nur als Flash `einmalpasswoerter` (PRG), nie im Protokoll** (Protokoll kennt nur `passwort_reset` ohne Werte).
   `PersonModel::transaktion()` = Transaktion mit `transException(true)` (R12), `legeMitgliedAn`, `mitglieder`, `benutzernameVergeben`.
   Upload-Prüfung ohne `isValid()` (Tests setzen `service('superglobals')->setFilesArray`).

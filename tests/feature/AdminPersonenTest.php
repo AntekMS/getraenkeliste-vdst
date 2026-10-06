@@ -290,6 +290,42 @@ final class AdminPersonenTest extends DbTestCase
         $this->assertSame([], $this->protokoll('archiviert'));
     }
 
+    public function test_admin_kann_eigenes_passwort_nicht_zuruecksetzen(): void
+    {
+        $alt = $this->person($this->admin)['passwort_hash'];
+        (new AnmeldeTokenModel())->insert(['person_id' => $this->admin, 'selector' => 'abc', 'token_hash' => 'x', 'gueltig_bis' => '2030-01-01 00:00:00']);
+
+        $antwort = $this->senden("admin/personen/{$this->admin}/passwort-reset");
+
+        $antwort->assertRedirectTo(site_url("admin/personen/{$this->admin}"));
+        $antwort->assertSessionHas('error', 'Dein eigenes Passwort änderst du unter Konto.');
+        $this->assertSame($alt, $this->person($this->admin)['passwort_hash']);
+        $this->assertSame(1, (new AnmeldeTokenModel())->where('person_id', $this->admin)->countAllResults());
+        $this->assertSame([], $this->protokoll('passwort_reset'));
+
+        $this->alsAngemeldet($this->admin)->get('admin/personen')->assertStatus(200);
+    }
+
+    public function test_eigener_pin_reset_fuehrt_zur_einrichtung(): void
+    {
+        $this->senden("admin/personen/{$this->admin}/pin-reset")->assertRedirectTo(site_url("admin/personen/{$this->admin}"));
+
+        $this->assertNull($this->person($this->admin)['pin_hash']);
+        $this->alsAngemeldet($this->admin)->get('admin/personen')->assertRedirectTo(site_url('konto/einrichten'));
+    }
+
+    public function test_bearbeitungsseite_der_eigenen_person_hat_keinen_passwort_reset(): void
+    {
+        $eigene = $this->alsAngemeldet($this->admin)->get("admin/personen/{$this->admin}");
+        $eigene->assertStatus(200);
+        $this->assertStringNotContainsString('passwort-reset', $eigene->getBody());
+        $this->assertStringContainsString('Passwort unter Konto &auml;ndern', $eigene->getBody());
+
+        $id    = $this->personAnlegen();
+        $fremd = $this->alsAngemeldet($this->admin)->get("admin/personen/{$id}");
+        $this->assertStringContainsString("admin/personen/{$id}/passwort-reset", $fremd->getBody());
+    }
+
     public function test_import_legt_nur_fehlerfreie_zeilen_an(): void
     {
         $this->personAnlegen(['benutzername' => 'vergeben']);

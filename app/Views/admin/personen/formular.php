@@ -69,10 +69,14 @@ $gewaehlt    = old('rollen') !== null ? (array) old('rollen') : $rollen;
 <?php if (! $neu && $person['archiviert_at'] === null): ?>
     <h2 class="h5">Aktionen</h2>
     <div class="d-flex flex-wrap gap-2">
-        <form action="<?= base_url('admin/personen/' . $person['id'] . '/passwort-reset') ?>" method="post">
-            <?= csrf_field() ?>
-            <button type="submit" class="btn btn-outline-vdst">Passwort zurücksetzen</button>
-        </form>
+        <?php if ($ich): ?>
+            <a class="btn btn-outline-vdst" href="<?= base_url('konto') ?>">Passwort unter Konto ändern</a>
+        <?php else: ?>
+            <form action="<?= base_url('admin/personen/' . $person['id'] . '/passwort-reset') ?>" method="post">
+                <?= csrf_field() ?>
+                <button type="submit" class="btn btn-outline-vdst">Passwort zurücksetzen</button>
+            </form>
+        <?php endif; ?>
         <form action="<?= base_url('admin/personen/' . $person['id'] . '/pin-reset') ?>" method="post">
             <?= csrf_field() ?>
             <button type="submit" class="btn btn-outline-vdst">PIN zurücksetzen</button>
