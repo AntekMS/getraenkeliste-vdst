@@ -101,6 +101,39 @@ final class BestandServiceTest extends DbTestCase
         $this->assertSame(12, $this->bestand($a));
     }
 
+    public function test_lieferung_bei_gesperrtem_bereich_wird_deutsche_meldung(): void
+    {
+        $a = $this->artikelAnlegen();
+
+        $this->beiGesperrtemBereich($this->bereich, function () use ($a): void {
+            try {
+                (new BestandService())->liefere($this->bereich, $this->person, [['artikel_id' => $a, 'kisten' => 0, 'stueck' => 5, 'einkaufspreis' => null]], null);
+                $this->fail('Ablehnung erwartet');
+            } catch (\App\Libraries\BewegungAbgelehnt $e) {
+                $this->assertSame('Gerade wird abgerechnet – bitte gleich erneut versuchen.', $e->getMessage());
+            }
+        });
+
+        $this->seeNumRecords(0, 'bestandsbewegungen', []);
+    }
+
+    public function test_lieferung_zu_grosse_menge_ist_feldfehler(): void
+    {
+        $a = $this->artikelAnlegen(['gebinde_groesse' => 1000]);
+
+        try {
+            (new BestandService())->liefere($this->bereich, $this->person, [['artikel_id' => $a, 'kisten' => 1001, 'stueck' => 0, 'einkaufspreis' => null]], null);
+            $this->fail('Ablehnung erwartet');
+        } catch (\App\Libraries\BewegungAbgelehnt $e) {
+            $this->assertSame('Menge zu groß.', $e->fehler['zeilen.0.kisten']);
+        }
+
+        $this->seeNumRecords(0, 'bestandsbewegungen', []);
+
+        (new BestandService())->liefere($this->bereich, $this->person, [['artikel_id' => $a, 'kisten' => 1000, 'stueck' => 0, 'einkaufspreis' => null]], null);
+        $this->seeInDatabase('bestandsbewegungen', ['artikel_id' => $a, 'menge' => 1000000]);
+    }
+
     public function test_fuer_bereich_ampel_und_filter(): void
     {
         $leer    = $this->artikelAnlegen(['name' => 'Leer', 'mindestbestand' => 5]);

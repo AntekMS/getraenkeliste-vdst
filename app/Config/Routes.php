@@ -90,5 +90,12 @@ foreach (['getraenke', 'kiosk'] as $bereich) {
         $routes->post('lieferung', 'BewegungenController::lieferung/' . $bereich, $filter);
         $routes->get('bewegung', 'BewegungenController::bewegungForm/' . $bereich, $filter);
         $routes->post('bewegung', 'BewegungenController::bewegung/' . $bereich, $filter);
+
+        $verwalten = ['filter' => ['angemeldet', 'recht:buchungen_verwalten@' . $bereich]];
+
+        $routes->get('buchungen', 'BuchungenController::index/' . $bereich, $verwalten);
+        $routes->post('buchungen/(:num)/storno', 'BuchungenController::storno/' . $bereich . '/$1', $verwalten);
+        $routes->get('korrektur', 'BuchungenController::korrekturForm/' . $bereich, $verwalten);
+        $routes->post('korrektur', 'BuchungenController::korrektur/' . $bereich, $verwalten);
     });
 }

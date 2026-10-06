@@ -98,6 +98,14 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   in `schreibend()`: Bereichssperre als erste Anweisung, Stichtag frisch, Einfrieren → „Dieser Zeitraum ist abgeschlossen.“, MySQL 1205/1213 → `BewegungAbgelehnt`
   „Gerade wird abgerechnet – bitte gleich erneut versuchen.“; Protokoll je Bewegung (`lieferung`/`schwund`/`korrektur`, Tabelle `bestandsbewegungen`).
   Fachliche Ablehnung = `BewegungAbgelehnt` (Message + `fehler`), der Controller leitet mit Flash `error`/`fehler` und `withInput()` zurück.
+- Buchungsverwaltung (Stufe 2, Task 6): `GET wart/<bereich>/buchungen`, `POST …/buchungen/(:num)/storno`, `GET/POST …/korrektur` (`Wart\BuchungenController`, Views
+  `wart/buchungen`, `wart/korrektur`, Recht `buchungen_verwalten@<bereich>`). Liste = laufender Zeitraum des Bereichs (`BuchungModel::imZeitraum`, Filter
+  `person`/`artikel`/`tag` mit gehärteten Parametern, 50 je Seite). `BuchungService::storniereAlsWart` (Grund Pflicht, keine Storno-Frist, Einfrieren + Bereichssperre,
+  setzt `storno_grund`, Protokoll `storniert`) und `bucheKorrektur` (`quelle = korrektur`, aktueller Preis, Menge ±1…99, Bemerkung Pflicht, archivierte Artikel erlaubt,
+  Protokoll `korrektur`; optionaler `$bereichId` erzwingt den Bereich). Beide sperren zuerst den Bereich (S2-R1). MySQL 1205/1213 → `BuchungAbgelehnt`/`BewegungAbgelehnt`
+  „Gerade wird abgerechnet – bitte gleich erneut versuchen.“ über `BuchungService::sperrfehlerAbgelehnt`. Summen mit negativer Menge: `einzelpreis_cent` ist UNSIGNED →
+  in SQL immer `CAST(einzelpreis_cent AS SIGNED)` vor der Multiplikation. Testhelfer `DbTestCase::beiGesperrtemBereich()` (zweite Verbindung hält die Bereichszeile).
+  Lieferung: Menge je Zeile ≤ 1 000 000 (sonst Feldfehler „Menge zu groß.“).
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;

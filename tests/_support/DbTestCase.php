@@ -131,6 +131,26 @@ abstract class DbTestCase extends CIUnitTestCase
         $this->resetServices();
     }
 
+    /**
+     * Führt `$arbeit` aus, während eine zweite Verbindung die Bereichszeile per `SELECT … FOR UPDATE` hält und die
+     * Verbindung des Dienstes `innodb_lock_wait_timeout = 1` hat (S2-R2: Lock-Wait-Timeout wie beim laufenden Abschluss).
+     */
+    protected function beiGesperrtemBereich(int $bereichId, callable $arbeit): void
+    {
+        $zweite = \Config\Database::connect('tests', false);
+        $zweite->transBegin();
+        $zweite->query('SELECT id FROM bereiche WHERE id = ? FOR UPDATE', [$bereichId]);
+        db_connect()->query('SET SESSION innodb_lock_wait_timeout = 1');
+
+        try {
+            $arbeit();
+        } finally {
+            db_connect()->query('SET SESSION innodb_lock_wait_timeout = 50');
+            $zweite->transRollback();
+            $zweite->close();
+        }
+    }
+
     protected function alsAngemeldet(int $personId): static
     {
         return $this->withSession([...$this->angemeldeteSitzung($personId), 'csrf_test_name' => 'test-token']);

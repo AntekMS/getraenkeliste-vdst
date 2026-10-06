@@ -19,7 +19,7 @@ class BuchungModel extends Model
     protected $useTimestamps = true;
     protected $allowedFields = [
         'vorgang_id', 'konto_id', 'artikel_id', 'menge', 'einzelpreis_cent', 'quelle',
-        'gebucht_von_id', 'geraet_id', 'gebucht_at', 'storniert_at', 'storniert_von_id', 'storno_grund',
+        'gebucht_von_id', 'geraet_id', 'gebucht_at', 'storniert_at', 'storniert_von_id', 'storno_grund', 'bemerkung',
     ];
 
     /**
@@ -67,9 +67,58 @@ class BuchungModel extends Model
             ->where('b.gebucht_at <=', $bis->format(self::FORMAT)));
     }
 
+    /**
+     * Verwaltungsliste des Warts: Buchungen eines Bereichs ab `$von`, neueste zuerst (inkl. stornierter), danach `paginate()`.
+     * Filter: `person` (Konto-ID), `artikel` (ID), `tag` (`JJJJ-MM-TT`); nicht skalare oder leere Werte zählen nicht.
+     *
+     * @param array<string, mixed> $filter
+     */
+    public function imZeitraum(int $bereichId, DateTimeImmutable $von, bool $vonInklusiv, array $filter): static
+    {
+        $this->select('buchungen.*, a.name AS artikel_name, k.bereich_id, konto.anzeigename AS konto_name, von.anzeigename AS gebucht_von_name')
+            ->join('artikel a', 'a.id = buchungen.artikel_id')
+            ->join('kategorien k', 'k.id = a.kategorie_id')
+            ->join('personen konto', 'konto.id = buchungen.konto_id')
+            ->join('personen von', 'von.id = buchungen.gebucht_von_id', 'left')
+            ->where('k.bereich_id', $bereichId)
+            ->where($vonInklusiv ? 'buchungen.gebucht_at >=' : 'buchungen.gebucht_at >', $von->format(self::FORMAT))
+            ->orderBy('buchungen.gebucht_at', 'DESC')
+            ->orderBy('buchungen.id', 'DESC');
+
+        $person  = $filter['person'] ?? null;
+        $artikel = $filter['artikel'] ?? null;
+        $tag     = $filter['tag'] ?? null;
+
+        if (is_int($person) && $person > 0) {
+            $this->where('buchungen.konto_id', $person);
+        }
+
+        if (is_int($artikel) && $artikel > 0) {
+            $this->where('buchungen.artikel_id', $artikel);
+        }
+
+        if (is_string($tag) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $tag) === 1) {
+            $this->where('buchungen.gebucht_at >=', $tag . ' 00:00:00')->where('buchungen.gebucht_at <=', $tag . ' 23:59:59');
+        }
+
+        return $this;
+    }
+
+    /**
+     * Bereich einer Buchung (über Artikel und Kategorie) oder null, wenn es sie nicht gibt.
+     */
+    public function bereichVon(int $buchungId): ?int
+    {
+        $zeile = $this->db->table('buchungen b')->select('k.bereich_id')
+            ->join('artikel a', 'a.id = b.artikel_id')->join('kategorien k', 'k.id = a.kategorie_id')
+            ->where('b.id', $buchungId)->get()->getRowArray();
+
+        return $zeile === null ? null : (int) $zeile['bereich_id'];
+    }
+
     private function summe(BaseBuilder $builder): int
     {
-        $zeile = $builder->select('SUM(b.menge * b.einzelpreis_cent) AS summe', false)
+        $zeile = $builder->select('SUM(b.menge * CAST(b.einzelpreis_cent AS SIGNED)) AS summe', false)
             ->where('b.storniert_at', null)
             ->get()->getRowArray();
 

@@ -16,7 +16,8 @@ use CodeIgniter\Database\Exceptions\DatabaseException;
  */
 class BestandService
 {
-    private const MAX_BEMERKUNG = 255;
+    private const MAX_BEMERKUNG   = 255;
+    private const MAX_LIEFERMENGE = 1000000;
 
     /**
      * Artikel mit Bestandsführung (nicht archiviert) je Kategorie in Sortierung.
@@ -125,6 +126,12 @@ class BestandService
                     continue;
                 }
 
+                if ($menge > self::MAX_LIEFERMENGE) {
+                    $fehler["zeilen.{$i}.kisten"] = 'Menge zu groß.';
+
+                    continue;
+                }
+
                 $neue[] = ['artikel_id' => $artikelId, 'art' => 'lieferung', 'menge' => $menge, 'einkaufspreis_cent' => $preis, 'bemerkung' => $bemerkung];
             }
 
@@ -213,7 +220,7 @@ class BestandService
                 $arbeit($jetzt->format('Y-m-d H:i:s'));
             });
         } catch (DatabaseException $e) {
-            if (in_array($e->getCode(), [1205, 1213], true) || str_contains($e->getMessage(), 'Lock wait timeout') || str_contains($e->getMessage(), 'Deadlock')) {
+            if (BuchungService::sperrfehlerAbgelehnt($e) !== null) {
                 throw new BewegungAbgelehnt('Gerade wird abgerechnet – bitte gleich erneut versuchen.');
             }
 

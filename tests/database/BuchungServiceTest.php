@@ -493,6 +493,61 @@ final class BuchungServiceTest extends DbTestCase
         $this->seeNumRecords(0, 'buchungen', ['vorgang_id' => self::V1, 'storniert_at' => null]);
     }
 
+    public function test_lock_timeout_wird_zu_deutscher_meldung_und_nichts_wird_geschrieben(): void
+    {
+        $konto   = $this->personAnlegen();
+        $wart    = $this->personAnlegen();
+        $helles  = $this->artikelAnlegen();
+        $bereich = $this->bereichId('getraenke');
+        $meldung = 'Gerade wird abgerechnet – bitte gleich erneut versuchen.';
+        service('buchungen')->bucheVorgang(self::V2, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $id = (int) db_connect()->table('buchungen')->where('vorgang_id', self::V2)->get()->getRow()->id;
+
+        $versuche = [
+            'buchen'          => static fn () => service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]),
+            'storno vorgang'  => static fn () => service('buchungen')->storniereVorgang(self::V2, $konto),
+            'storno buchung'  => static fn () => service('buchungen')->storniereBuchung($id, $konto),
+            'storno wart'     => static fn () => service('buchungen')->storniereAlsWart($id, $wart, 'Irrtum'),
+            'korrektur'       => static fn () => service('buchungen')->bucheKorrektur($konto, $helles, -1, 'Fehler', $wart),
+        ];
+
+        $this->beiGesperrtemBereich($bereich, function () use ($versuche, $meldung): void {
+            foreach ($versuche as $name => $versuch) {
+                try {
+                    $versuch();
+                    $this->fail("{$name}: Ablehnung erwartet");
+                } catch (BuchungAbgelehnt $e) {
+                    $this->assertSame($meldung, $e->getMessage(), $name);
+                }
+            }
+        });
+
+        $this->seeNumRecords(1, 'buchungen', []);
+        $this->seeNumRecords(1, 'buchungen', ['vorgang_id' => self::V2, 'storniert_at' => null]);
+        $this->seeNumRecords(0, 'protokoll', []);
+    }
+
+    public function test_wart_storno_ohne_grund_und_nach_frist(): void
+    {
+        $konto  = $this->personAnlegen();
+        $wart   = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $id = (int) db_connect()->table('buchungen')->where('vorgang_id', self::V1)->get()->getRow()->id;
+        $this->uhrStellen('2026-10-07 12:00:00');
+
+        try {
+            service('buchungen')->storniereAlsWart($id, $wart, '  ');
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Bitte einen Grund angeben.', $e->getMessage());
+        }
+
+        service('buchungen')->storniereAlsWart($id, $wart, ' Doppelt gebucht ');
+        $this->seeInDatabase('buchungen', ['id' => $id, 'storniert_von_id' => $wart, 'storno_grund' => 'Doppelt gebucht', 'storniert_at' => '2026-10-07 12:00:00']);
+        $this->seeInDatabase('protokoll', ['person_id' => $wart, 'aktion' => 'storniert', 'tabelle' => 'buchungen', 'datensatz_id' => $id]);
+    }
+
     /**
      * Dienst, dessen Hook (in der Transaktion, nach der Bereichssperre) über eine zweite Verbindung
      * versucht, den Bereich selbst zu sperren; die Exception landet in `$fehler`.
