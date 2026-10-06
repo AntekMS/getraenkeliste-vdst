@@ -252,3 +252,5 @@ Eine Spec, Umsetzung Stufe für Stufe; jede Stufe ist für sich nutzbar.
 | 3 – Ausbau | Statistikseite und Bestellhilfe, Spenden-Liste und Spenden-Export, Kassenwart-Bereich, Freischaltung des Bereichs `kiosk` mit Kioskwart |
 
 Das Datenmodell enthält von Anfang an Bereiche, sodass Stufe 3 den Fuxenkiosk nur noch freischaltet und keinen Umbau braucht.
+
+Das Backup (Abschnitt 3) wurde aus Stufe 2 nach Stufe 1 vorgezogen, damit die App schon mit Stufe 1 auf dem Pi betrieben werden kann (`scripts/backup.sh`, `scripts/restore.sh`, systemd-Timer, `docs/BACKUP.md`, `docs/DEPLOY-PI.md`).

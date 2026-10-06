@@ -1,0 +1,12 @@
+# Tägliches Backup der Getränkeliste auf den USB-Stick (/mnt/kasse-backup/getraenkeliste).
+# Installation und Testlauf: docs/DEPLOY-PI.md, Inhalt und Restore: docs/BACKUP.md
+[Unit]
+Description=Getränkeliste VDSt: Backup (DB-Dump, Exporte, Konfiguration)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Eigene Datei statt der App-.env: die enthält CI-Schlüssel mit Punkten (app.baseURL …).
+EnvironmentFile=/etc/getraenkeliste-backup.env
+ExecStart=/opt/getraenkeliste/scripts/backup.sh

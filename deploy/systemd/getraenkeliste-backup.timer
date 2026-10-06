@@ -1,0 +1,13 @@
+# Startet getraenkeliste-backup.service täglich um 02:30
+# (Kassensystem sichert um 02:00 auf denselben Stick – bewusst versetzt).
+[Unit]
+Description=Getränkeliste VDSt: tägliches Backup um 02:30
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+# Verpasste Läufe (Pi war aus) nach dem Hochfahren nachholen.
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

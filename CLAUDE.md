@@ -26,6 +26,9 @@ Auf diesem Rechner gibt es **kein Host-PHP/Composer** — alles im Web-Container
 - `docker exec -it getraenkeliste-web php spark admin:anlegen` — ersten Admin anlegen
 - `docker exec getraenkeliste-web php -l <datei>` — Syntax-Check
 - Git Bash: bei `docker run -v` den Pfad mit `MSYS_NO_PATHCONV=1` bzw. `$(pwd -W)` übergeben
+- `BACKUP_MOUNT= BACKUP_DIR=./backups ./scripts/backup.sh` — Backup lokal testen (liest die Dev-DB nur;
+  `backups/` ist ignoriert). Restore-Proben nur mit `DB_NAME=<wegwerf_db>`, nie gegen `getraenkeliste`
+- `MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)":/mnt -w /mnt koalaman/shellcheck:stable scripts/*.sh docker/entrypoint.sh` — Shellcheck
 
 ## Workflow
 - Hauptbranch ist **`main`**. Änderungen auf Feature-Branch, am Ende PR gegen `main`.
@@ -36,7 +39,7 @@ Auf diesem Rechner gibt es **kein Host-PHP/Composer** — alles im Web-Container
   nicht mit CRLF ankommen.
 
 ## Architektur-Landkarte
-Aufbau (Stufe 1 komplett):
+Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
 - `app/Config/` — angepasst: `App` (Europe/Berlin, Locale `de`, kein `index.php` in URLs),
   `Security` (CSRF `session`), `Session`, `Cookie`, `Filters` (`csrf` global), `Database`
   (liest `DB_HOST/DB_NAME/DB_USER/DB_PASS` aus der Compose-Umgebung)
@@ -118,6 +121,16 @@ Aufbau (Stufe 1 komplett):
   `didRegenerate`. Login-POSTs in Feature-Tests: `withSession(['csrf_test_name'=>…])->post('login', [...csrf(), …])`.
 - `docker/mysql-init/01-testdb.sql` — legt die Testdatenbank an (nur beim ersten Start des
   MySQL-Volumes; bei bestehendem Volume manuell nachholen)
+- `docker/entrypoint.sh` — ENTRYPOINT des Web-Images (als `/usr/local/bin/getraenkeliste-entrypoint`, `CMD apache2-foreground`
+  explizit, weil ein eigener ENTRYPOINT das geerbte CMD zurücksetzt): `chown -R www-data` + `chmod -R u+rwX,g+rwX` auf `writable/`
+  (Linux-Host/Pi: Bind-Mount behält Host-UID), Fehler nur als Hinweis (Docker Desktop), dann `exec docker-php-entrypoint "$@"`.
+  Image-Änderung erst nach `docker compose up -d --build --force-recreate getraenkeliste-web` aktiv.
+- Backup/Betrieb (Task 18, aus Stufe 2 vorgezogen): `scripts/backup.sh` (Host, bash; DB-Dump per `docker exec -e MYSQL_PWD … mysqldump`,
+  `exporte_*.tar.gz` aus `writable/exporte/`, `konfig_*.tar.gz` mit `.env`/Override, `umask 077`, Monats-Promotion, Retention;
+  Mount-Prüfung `BACKUP_MOUNT` (leer = aus), dann ist `DB_PASS` Pflicht), `scripts/restore.sh` (Rückfrage „ja“/`--ja`, Sicherheits-Dump
+  nach `BACKUP_DIR/vor-restore/`, Export-Archiv nur mit `exporte/`-Pfaden, Konfig nie automatisch), `deploy/systemd/` (Timer 02:30,
+  `EnvironmentFile=/etc/getraenkeliste-backup.env`, Vorlage `deploy/getraenkeliste-backup.env.example`). Doku: `docs/BACKUP.md`,
+  `docs/DEPLOY-PI.md` (Pi-Installation, Update, Tablet, Fehlersuche). Skripte mit LF und Git-Modus 755 committen.
 
 - Admin Personen (`/admin/*`, Filter `angemeldet` + `recht:admin`, Namespace `App\Controllers\Admin`): `PersonenController` (Liste mit Filter
   gruppe/archiviert, Anlegen, Bearbeiten + Rollen-Checkboxen, `passwort-reset`, `pin-reset`, `archivieren`, `einmalpasswoerter`),
@@ -182,6 +195,8 @@ Aufbau (Stufe 1 komplett):
 ## Konventionen & Invarianten
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
   `CI_ENVIRONMENT` defaultet in `docker-compose.yml` auf `development`; auf dem Pi muss `.env` `CI_ENVIRONMENT=production` setzen (ohne Leerzeichen, Compose liest die Datei mit; README).
+  Compose ignoriert die CI-Zeilen mit Punkten (`app.baseURL = '…'`, `cookie.secure = true`) – mit `docker compose --env-file <tmp> config` geprüft. `cookie.secure = true` nur hinter HTTPS (sonst kein Login).
+- **Backups (Task 18):** neue persistente Daten außerhalb der DB gehören in `writable/exporte/` oder müssen in `scripts/backup.sh` ergänzt werden; neue Geheimnisse nur in `.env` (landen im Konfig-Archiv).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token
   muss idempotent bleiben; festgenagelt in `ZugriffsschutzTest::test_csrf_token_wird_nach_post_nicht_regeneriert`); `Security::$redirect = true` — Formular-POST ohne gültiges
   CSRF-Token wird zurückgeleitet statt 403 (JSON/AJAX bekommt 403).

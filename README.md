@@ -20,12 +20,16 @@ docker exec getraenkeliste-web vendor/bin/phpunit
 
 ## `.env` für den Betrieb (Raspberry Pi / HTTPS)
 
-Die Datei `.env` im Projektverzeichnis (nicht versioniert) **muss** setzen:
+Vollständige, getestete Anleitung für den Pi (inkl. Passwörtern und Backup): **`docs/DEPLOY-PI.md`**.
+Die Datei `.env` im Projektverzeichnis (nicht versioniert) setzt mindestens:
 
-```
+```ini
 CI_ENVIRONMENT=production
-app.baseURL = 'https://<hostname>/'
-cookie.secure = true
+DB_PASS=<starkes Passwort>
+MYSQL_ROOT_PASSWORD=<starkes Passwort>
+app.baseURL = 'http://<pi-hostname>:8090/'
+# nur hinter HTTPS (Reverse-Proxy/Tunnel), dann auch app.baseURL = 'https://…/':
+# cookie.secure = true
 ```
 
 `docker-compose.yml` setzt `CI_ENVIRONMENT` standardmäßig auf `development` (lokale Entwicklung:
@@ -35,7 +39,9 @@ sonst sieht jeder Besucher bei Fehlern Stacktraces mit Pfaden und SQL. Nach eine
 `docker compose up -d` (der Container übernimmt die Umgebung nur beim Neuerstellen).
 
 Ohne `app.baseURL` zeigen Redirects auf `http://localhost:8090/`. Ohne `cookie.secure = true` laufen
-Sitzungs-, „Angemeldet bleiben“- und Geräte-Cookie auch über unverschlüsselte Verbindungen.
+Sitzungs-, „Angemeldet bleiben“- und Geräte-Cookie auch über unverschlüsselte Verbindungen; **mit**
+`cookie.secure = true` über reines HTTP funktioniert dagegen kein Login (der Browser schickt die Cookies
+nicht zurück). Docker Compose ignoriert die CI-Zeilen mit Punkten (geprüft mit `docker compose config`).
 
 ### phpMyAdmin abschalten
 
@@ -53,10 +59,12 @@ Danach `docker compose up -d` (ein bereits laufender Container wird mit
 
 ## Inbetriebnahme
 
+Auf dem Raspberry Pi Schritt für Schritt: `docs/DEPLOY-PI.md`.
+
 1. Repo nach `/opt/getraenkeliste` klonen, `.env` anlegen (siehe oben), `docker compose up -d --build`
-   (App auf Port 8090), `docker exec getraenkeliste-web composer install`.
-2. `docker exec getraenkeliste-web php spark migrate` (legt Bereiche, Couleur/Bund und Einstellungen an),
-   dann `docker exec -it getraenkeliste-web php spark admin:anlegen` (erster Admin; die PIN wird beim ersten
+   (App auf Port 8090), `docker exec getraenkeliste-web composer install --no-dev --optimize-autoloader`.
+2. `docker exec -u www-data getraenkeliste-web php spark migrate` (legt Bereiche, Couleur/Bund und Einstellungen an),
+   dann `docker exec -it -u www-data getraenkeliste-web php spark admin:anlegen` (erster Admin; die PIN wird beim ersten
    Login abgefragt).
 3. Anmelden, Personen per CSV importieren (Verwaltung → Personen → CSV-Import) und Rollen vergeben;
    die ausgegebenen Einmal-Passwörter drucken oder verteilen (sie werden nur einmal angezeigt).
@@ -64,10 +72,18 @@ Danach `docker compose up -d` (ein bereits laufender Container wird mit
 4. *(Stufe 2)* Start-Auszählung je Bereich.
 5. Tablet freischalten: Verwaltung → Tablets → Freischaltcode erzeugen (8 Ziffern, 15 Minuten gültig),
    am Tablet `/tablet/freischalten` öffnen, Code und Gerätename eingeben.
-6. *(Stufe 2)* Backup-Timer einrichten.
+6. Backup-Timer einrichten (täglich 02:30 auf den USB-Stick `/mnt/kasse-backup/getraenkeliste/`):
+   `docs/DEPLOY-PI.md`, Inhalt und Wiederherstellung: `docs/BACKUP.md`.
 
 In Stufe 1 gibt es genau einen Abrechnungszeitraum ab dem Inbetriebnahme-Zeitpunkt (Einstellungen,
-nicht änderbar). Start-Auszählung und Backup folgen in Stufe 2.
+nicht änderbar). Die Start-Auszählung folgt in Stufe 2.
+
+## Backup
+
+- `scripts/backup.sh` — DB-Dump, gespeicherte Exporte, Konfiguration; Monats-Promotion, Retention
+  (lokal testen: `BACKUP_MOUNT= BACKUP_DIR=./backups ./scripts/backup.sh`)
+- `scripts/restore.sh <db_dump.sql.gz> [exporte.tar.gz] [--ja]` — mit Rückfrage und Sicherheits-Dump vorher
+- systemd-Units und Vorlage der Backup-Konfiguration: `deploy/`
 
 ## Bekannte Grenzen (Stufe 1)
 
@@ -81,3 +97,4 @@ nicht änderbar). Start-Auszählung und Backup folgen in Stufe 2.
 ## Dokumentation
 
 Design-Spec und Implementierungspläne: `docs/superpowers/`. Hinweise für die Entwicklung: `CLAUDE.md`.
+Betrieb: `docs/DEPLOY-PI.md` (Raspberry Pi), `docs/BACKUP.md` (Backup & Wiederherstellung).

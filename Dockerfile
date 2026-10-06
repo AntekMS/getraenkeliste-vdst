@@ -57,4 +57,14 @@ RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|g' /e
 
 RUN echo "ServerName localhost:8090" >> /etc/apache2/apache2.conf
 
+# Macht writable/ beim Start für www-data beschreibbar (Bind-Mount auf Linux-Hosts, z. B. Pi)
+# und startet dann wie das Basis-Image. Eigene Kopie mit +x, weil das Ausführungsrecht
+# aus einem Windows-Checkout nicht zuverlässig im Build-Kontext ankommt.
+COPY docker/entrypoint.sh /usr/local/bin/getraenkeliste-entrypoint
+RUN chmod 755 /usr/local/bin/getraenkeliste-entrypoint
+
+ENTRYPOINT ["getraenkeliste-entrypoint"]
+# Ein eigener ENTRYPOINT setzt das geerbte CMD zurück – daher explizit.
+CMD ["apache2-foreground"]
+
 EXPOSE 80
