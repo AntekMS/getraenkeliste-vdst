@@ -74,6 +74,18 @@ final class AdminProtokollTest extends DbTestCase
         $this->assertStringNotContainsString('<td>einstellungen</td>', $nachDatum);
     }
 
+    public function test_array_parameter_und_riesige_seite_liefern_200(): void
+    {
+        $this->eintrag($this->admin, 'artikel', '2026-10-05 10:00:00');
+
+        foreach (['tabelle[]=x', 'von[]=2026-10-01', 'bis[]=x', 'person[]=1', 'page[]=2', 'page=99999999999999999999', 'page=999'] as $query) {
+            $body = $this->alsAngemeldet($this->admin)->get('admin/protokoll?' . $query);
+            $body->assertOK();
+        }
+
+        $this->assertStringContainsString('<td>artikel</td>', $this->seite('admin/protokoll?page=999'));
+    }
+
     public function test_50_je_seite(): void
     {
         for ($i = 0; $i < 60; $i++) {

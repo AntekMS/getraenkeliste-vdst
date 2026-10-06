@@ -164,7 +164,7 @@ Aufbau (Stufe 1 komplett):
   POST validiert **alle** Felder zuerst (ein Fehler → nichts gespeichert, Formular mit Fehlern je Feld), dann `Einstellungen::setze` (unveränderte
   Werte werden übersprungen, nicht protokolliert); fehlende/nicht änderbare Felder werden ignoriert. Flash „Einstellungen gespeichert.“.
   `admin/protokoll`: Filter `person`, `tabelle`, `von`, `bis` (ungültige Daten werden ignoriert), neueste zuerst, 50 je Seite
-  (`ProtokollModel::gefiltert()` + `paginate`; Seite wird explizit aus `?page=` gelesen; Pager-Template `bootstrap_full` in `Views/pagers`,
+  (`ProtokollModel::gefiltert()` + `paginate`; Seite wird explizit aus `?page=` gelesen (nur Ziffern, auf 1..letzte Seite begrenzt; Array-Parameter werden ignoriert); Pager-Template `bootstrap_full` in `Views/pagers`,
   `Config\Pager`), alt/neu als escapte Schlüssel-Wert-Liste, Person „System“ bei `person_id` NULL.
 - `tests/feature/ZugriffsschutzTest` — Routenmatrix: **jede** Route (feste Liste, bei neuen Routen ergänzen!) × anonym/mitglied/admin/tablet;
   ein Test je Fall (Session-CSRF/Cookie leben nicht über mehrere Requests), `$refresh = false` + `uniqid`-Benutzernamen für Tempo (~20 s statt ~3 min).
@@ -183,9 +183,9 @@ Aufbau (Stufe 1 komplett):
 - **Zeit:** nie `new DateTime()`/`time()` in App-Code, immer `service('uhr')->jetzt()` (Tests fixieren sie mit `uhrStellen`).
 - **Cookies (R10):** Cookie-Änderungen (`gl_merken`, `gl_geraet`) setzt der Filter in `after()` auf die gesendete Antwort; `->withCookies()` nur bei Redirects aus `before()` und ungefilterten Routen. Geräte-Cookie wird gleitend bei jeder Tablet-Antwort erneuert.
 - **Transaktionen (R12):** mehrstufige Schreibvorgänge laufen in `transaktion()` (Trait mit `transException(true)`); sonst committet CI4 Teilergebnisse still.
-- **Tablet-CSRF-Ausnahme:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Configilters`) und nur über `tablet` + `tablet_csrf` erreichbar; neue tablet-routen gehören in die routengruppe `tablet`. alle übrigen posts behalten `csrf` (+ `security::$regenerate = false`).
-- **protokoll:** nie hashes, passwörter, pins, freischalt-/einmalcodes (`protokollierer` entfernt `*_hash`-schlüssel; klartext-geheimnisse gehören nicht hinein). sortieren und eigene buchungen/stornos werden nicht protokolliert.
-- **rechte:** berechtigung nur über filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`) in `routes.php`; neue route ⇒ `zugriffsschutztest` erweitern.
+- **Tablet-CSRF-Ausnahme:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Config\Filters`) und nur über `tablet` + `tablet_csrf` erreichbar; neue Tablet-Routen gehören in die Routengruppe `tablet`. Alle übrigen POSTs behalten `csrf` (+ `Security::$regenerate = false`).
+- **Protokoll:** nie Hashes, Passwörter, PINs, Freischalt-/Einmalcodes (`Protokollierer` entfernt `*_hash`-Schlüssel; Klartext-Geheimnisse gehören nicht hinein). Sortieren und eigene Buchungen/Stornos werden nicht protokolliert.
+- **Rechte:** Berechtigung nur über Filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`) in `Routes.php`; neue Route ⇒ `ZugriffsschutzTest` erweitern.
 
 ## Bewusste Abweichungen vom Kassensystem (Spec Abschnitt 3)
 - Rollen und Mehrbenutzerbetrieb sind der Zweck dieser App.

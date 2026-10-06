@@ -11,7 +11,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\DbTestCase;
 
 /**
- * Zugriffs-Sweep: jede Route aus `php spark routes` (feste Liste unten, Beispiel-ID 1) mit vier Akteuren.
+ * Zugriffs-Sweep: jede Route aus `php spark routes` (feste Liste unten, nicht existierende Beispiel-ID 999999) mit vier Akteuren.
  *
  * Routenklassen und erwartetes Ergebnis je Akteur:
  *
@@ -24,6 +24,9 @@ use Tests\Support\DbTestCase;
  * | abmelden    | Redirect `login`      | Redirect `login`      | Redirect `login`      | Redirect `tablet` |
  * | admin       | Redirect `login`      | 403                   | durchgelassen         | Redirect `tablet` |
  * | umleitung   | Redirect `buchen`     | Redirect `buchen`     | Redirect `buchen`     | Redirect `buchen` |
+ *
+ * Der Test prüft nur die Zugriffsschicht (Filter), keine Fachlogik: „durchgelassen“ ist ein Access-Check, kein Funktionstest.
+ * Alle ID-Routen nutzen eine nicht existierende ID, damit Admin-POSTs bei geteilter DB ($refresh = false) nie echte Zeilen ändern.
  *
  * „durchgelassen“ = kein 403 und kein Redirect zu Login/Tablet/Freischaltung (die Fachlogik darf mit
  * 404/422/Fehlerflash antworten, Beispiel-IDs existieren nicht). Jeder Fall ist ein eigener Test, weil
@@ -53,28 +56,28 @@ final class ZugriffsschutzTest extends DbTestCase
         $routen = [
             ['GET', 'login', 'offen'], ['POST', 'login', 'offen'],
             ['GET', 'tablet/freischalten', 'frei_tablet'], ['POST', 'tablet/freischalten', 'frei_tablet'],
-            ['GET', 'tablet', 'tablet'], ['GET', 'tablet/pin/1', 'tablet'], ['GET', 'tablet/buchen', 'tablet'],
-            ['POST', 'tablet/waehlen/1', 'tablet'], ['POST', 'tablet/pin/1', 'tablet'], ['POST', 'tablet/buchen', 'tablet'],
+            ['GET', 'tablet', 'tablet'], ['GET', 'tablet/pin/999999', 'tablet'], ['GET', 'tablet/buchen', 'tablet'],
+            ['POST', 'tablet/waehlen/999999', 'tablet'], ['POST', 'tablet/pin/999999', 'tablet'], ['POST', 'tablet/buchen', 'tablet'],
             ['POST', 'tablet/rueckgaengig', 'tablet'], ['POST', 'tablet/fertig', 'tablet'],
             ['POST', 'logout', 'abmelden'],
             ['GET', 'konto/einrichten', 'angemeldet'], ['POST', 'konto/einrichten', 'angemeldet'],
             ['GET', 'konto', 'angemeldet'], ['POST', 'konto/passwort', 'angemeldet'], ['POST', 'konto/pin', 'angemeldet'],
             ['GET', 'buchen', 'angemeldet'], ['POST', 'buchen', 'angemeldet'], ['POST', 'buchen/rueckgaengig', 'angemeldet'],
-            ['GET', 'meine-buchungen', 'angemeldet'], ['POST', 'meine-buchungen/storno/1', 'angemeldet'],
+            ['GET', 'meine-buchungen', 'angemeldet'], ['POST', 'meine-buchungen/storno/999999', 'angemeldet'],
             ['GET', 'admin/personen', 'admin'], ['GET', 'admin/personen/neu', 'admin'], ['POST', 'admin/personen', 'admin'],
             ['GET', 'admin/personen/einmalpasswoerter', 'admin'], ['GET', 'admin/personen/import', 'admin'],
             ['POST', 'admin/personen/import/vorschau', 'admin'], ['POST', 'admin/personen/import/ausfuehren', 'admin'],
-            ['GET', 'admin/personen/1', 'admin'], ['POST', 'admin/personen/1', 'admin'],
-            ['POST', 'admin/personen/1/passwort-reset', 'admin'], ['POST', 'admin/personen/1/pin-reset', 'admin'],
-            ['POST', 'admin/personen/1/archivieren', 'admin'],
+            ['GET', 'admin/personen/999999', 'admin'], ['POST', 'admin/personen/999999', 'admin'],
+            ['POST', 'admin/personen/999999/passwort-reset', 'admin'], ['POST', 'admin/personen/999999/pin-reset', 'admin'],
+            ['POST', 'admin/personen/999999/archivieren', 'admin'],
             ['GET', 'admin/tablets', 'admin'], ['POST', 'admin/tablets/code', 'admin'],
-            ['POST', 'admin/tablets/1/umbenennen', 'admin'], ['POST', 'admin/tablets/1/sperren', 'admin'],
-            ['GET', 'admin/stammdaten', 'admin'], ['POST', 'admin/kategorien', 'admin'], ['POST', 'admin/kategorien/1', 'admin'],
-            ['POST', 'admin/kategorien/1/verschieben/hoch', 'admin'], ['POST', 'admin/kategorien/1/verschieben/runter', 'admin'],
-            ['POST', 'admin/kategorien/1/archivieren', 'admin'],
-            ['GET', 'admin/artikel/neu', 'admin'], ['GET', 'admin/artikel/1', 'admin'], ['POST', 'admin/artikel', 'admin'],
-            ['POST', 'admin/artikel/1', 'admin'], ['POST', 'admin/artikel/1/verschieben/hoch', 'admin'],
-            ['POST', 'admin/artikel/1/verschieben/runter', 'admin'], ['POST', 'admin/artikel/1/archivieren', 'admin'],
+            ['POST', 'admin/tablets/999999/umbenennen', 'admin'], ['POST', 'admin/tablets/999999/sperren', 'admin'],
+            ['GET', 'admin/stammdaten', 'admin'], ['POST', 'admin/kategorien', 'admin'], ['POST', 'admin/kategorien/999999', 'admin'],
+            ['POST', 'admin/kategorien/999999/verschieben/hoch', 'admin'], ['POST', 'admin/kategorien/999999/verschieben/runter', 'admin'],
+            ['POST', 'admin/kategorien/999999/archivieren', 'admin'],
+            ['GET', 'admin/artikel/neu', 'admin'], ['GET', 'admin/artikel/999999', 'admin'], ['POST', 'admin/artikel', 'admin'],
+            ['POST', 'admin/artikel/999999', 'admin'], ['POST', 'admin/artikel/999999/verschieben/hoch', 'admin'],
+            ['POST', 'admin/artikel/999999/verschieben/runter', 'admin'], ['POST', 'admin/artikel/999999/archivieren', 'admin'],
             ['GET', 'admin/einstellungen', 'admin'], ['POST', 'admin/einstellungen', 'admin'],
             ['GET', 'admin/protokoll', 'admin'],
             ['GET', '/', 'umleitung'],
