@@ -81,6 +81,10 @@ final class ZugriffsschutzTest extends DbTestCase
         ['GET', 'admin/einstellungen', 'admin'], ['POST', 'admin/einstellungen', 'admin'],
         ['GET', 'admin/protokoll', 'admin'],
         ['GET', 'wart/getraenke/bestand', 'wart_getraenke'], ['GET', 'wart/kiosk/bestand', 'wart_kiosk'],
+        ['GET', 'wart/getraenke/lieferung', 'wart_getraenke'], ['POST', 'wart/getraenke/lieferung', 'wart_getraenke'],
+        ['GET', 'wart/getraenke/bewegung', 'wart_getraenke'], ['POST', 'wart/getraenke/bewegung', 'wart_getraenke'],
+        ['GET', 'wart/kiosk/lieferung', 'wart_kiosk'], ['POST', 'wart/kiosk/lieferung', 'wart_kiosk'],
+        ['GET', 'wart/kiosk/bewegung', 'wart_kiosk'], ['POST', 'wart/kiosk/bewegung', 'wart_kiosk'],
         ['GET', '/', 'umleitung'],
     ];
 

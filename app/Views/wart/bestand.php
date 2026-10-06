@@ -5,6 +5,7 @@
 <?= $this->section('content') ?>
 <?php
 $ampelKlasse = ['ok' => 'badge-status-gruen', 'niedrig' => 'badge-status-amber', 'leer' => 'badge-status-rot', 'negativ' => 'badge-status-rot'];
+$ampelText = ['ok' => 'OK', 'niedrig' => 'Niedrig', 'leer' => 'Leer', 'negativ' => 'Negativ'];
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <h1 class="h3 mb-0">Bestand <?= esc($bereich['name']) ?></h1>
@@ -41,7 +42,7 @@ $ampelKlasse = ['ok' => 'badge-status-gruen', 'niedrig' => 'badge-status-amber',
                         <td><?= esc($a['name']) ?> <span class="text-muted small"><?= esc($a['einheit']) ?></span></td>
                         <td class="text-end"><?= esc($a['bestand']) ?></td>
                         <td class="text-end"><?= esc($a['mindestbestand']) ?></td>
-                        <td><span class="badge-status <?= $ampelKlasse[$a['ampel']] ?>"><?= esc($a['ampel']) ?></span></td>
+                        <td><span class="badge-status <?= $ampelKlasse[$a['ampel']] ?>"><?= esc($ampelText[$a['ampel']]) ?></span></td>
                     </tr>
                 <?php endforeach; ?>
             </tbody>
@@ -50,6 +51,8 @@ $ampelKlasse = ['ok' => 'badge-status-gruen', 'niedrig' => 'badge-status-amber',
 <?php endforeach; ?>
 
 <p class="mt-4">
-    <a href="<?= base_url('wart/' . $bereich['schluessel'] . '/schwund') ?>">Schwund erfassen</a>
+    <a href="<?= base_url('wart/' . $bereich['schluessel'] . '/bewegung?art=schwund') ?>">Schwund erfassen</a>
+    &middot;
+    <a href="<?= base_url('wart/' . $bereich['schluessel'] . '/bewegung?art=korrektur') ?>">Bestand korrigieren</a>
 </p>
 <?= $this->endSection() ?>

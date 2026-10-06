@@ -83,6 +83,12 @@ $routes->group('admin', ['filter' => ['angemeldet', 'recht:admin'], 'namespace' 
 // Wart-Bereich: das Recht hängt am Bereich in der URL (recht:<aktion>@<bereich>); der Controller liefert 404 für inaktive Bereiche (Kiosk bis Stufe 3).
 foreach (['getraenke', 'kiosk'] as $bereich) {
     $routes->group('wart/' . $bereich, ['namespace' => 'App\Controllers\Wart'], static function (RouteCollection $routes) use ($bereich): void {
-        $routes->get('bestand', 'BestandController::index/' . $bereich, ['filter' => ['angemeldet', 'recht:bestand_pflegen@' . $bereich]]);
+        $filter = ['filter' => ['angemeldet', 'recht:bestand_pflegen@' . $bereich]];
+
+        $routes->get('bestand', 'BestandController::index/' . $bereich, $filter);
+        $routes->get('lieferung', 'BewegungenController::lieferungForm/' . $bereich, $filter);
+        $routes->post('lieferung', 'BewegungenController::lieferung/' . $bereich, $filter);
+        $routes->get('bewegung', 'BewegungenController::bewegungForm/' . $bereich, $filter);
+        $routes->post('bewegung', 'BewegungenController::bewegung/' . $bereich, $filter);
     });
 }

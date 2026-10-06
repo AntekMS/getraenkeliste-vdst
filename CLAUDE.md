@@ -86,12 +86,18 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   (≤ Stichtag), `fruehere` (`von`/`bis`/`von_inklusiv`/`auszaehlung_id`, neueste zuerst; `von` = vorheriger Stichtag bzw. Inbetriebnahme).
   `BuchungModel::fuerKonto/vonPersonAufSammelkonten(…, ab, abInklusiv, bereichId)`, `offenerBetrag(…, ab, abInklusiv)`,
   `summeImZeitraum(konto, bereich, von exkl., bis inkl., vonInklusiv)`.
-- Wart-Bereich (Stufe 2, Task 4): Routen `wart/<bereich>/…` (Schleife über `getraenke`/`kiosk` in `Routes.php`, Namespace `AppControllersWart`, Filter
+- Wart-Bereich (Stufe 2, Task 4): Routen `wart/<bereich>/…` (Schleife über `getraenke`/`kiosk` in `Routes.php`, Namespace `App\Controllers\Wart`, Filter
   `angemeldet` + `recht:<aktion>@<bereich>`; `RechtFilter` trennt am ersten `@`, leerer Bereich → 403). Der Controller bekommt den Schlüssel als Argument und
   liefert 404 für unbekannte/inaktive Bereiche (Kiosk bis Stufe 3; Getränkewart bekommt dort 403, Admin 404). `GET wart/<bereich>/bestand` (`BestandController`,
   View `wart/bestand`, Ampel über `badge-status-*`). `Libraries/BestandService` (Service `bestand()`): `fuerBereich(bereichId)` (je Kategorie, nur `bestand_fuehren`
   und nicht archiviert) und `einzeln(artikelId)`; Bestand = Ist der letzten abgeschlossenen Position (sonst 0) + Bewegungen − nicht stornierte Buchungsmengen
   im laufenden Zeitraum (`zeitraeume()`), über Aggregatabfragen. Navigation „Getränkewart“ nur mit `darf(…, bestand_pflegen, getraenke)`.
+- Bewegungen (Stufe 2, Task 5): `GET/POST wart/<bereich>/lieferung` und `…/bewegung` (`Wart\BewegungenController`, Views `wart/lieferung`, `wart/bewegung`,
+  `public/js/lieferung.js` für weitere Zeilen aus `<template>`). `BestandService::liefere` (Kisten × Gebinde + Stück, optional EK je Stück, alles oder nichts,
+  Feldfehler `zeilen.<i>.<feld>`) und `bucheBewegung` (`schwund` positiv eingegeben → negativ gespeichert, `korrektur` ±, nie 0, Bemerkung Pflicht). Beide laufen
+  in `schreibend()`: Bereichssperre als erste Anweisung, Stichtag frisch, Einfrieren → „Dieser Zeitraum ist abgeschlossen.“, MySQL 1205/1213 → `BewegungAbgelehnt`
+  „Gerade wird abgerechnet – bitte gleich erneut versuchen.“; Protokoll je Bewegung (`lieferung`/`schwund`/`korrektur`, Tabelle `bestandsbewegungen`).
+  Fachliche Ablehnung = `BewegungAbgelehnt` (Message + `fehler`), der Controller leitet mit Flash `error`/`fehler` und `withInput()` zurück.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
