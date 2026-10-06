@@ -74,6 +74,8 @@ class TabletController extends BaseController
 
     public function waehlen(int $id): RedirectResponse
     {
+        $this->sitzungLeeren();
+
         $person = (new PersonModel())->find($id);
 
         if ($person === null || $person['archiviert_at'] !== null) {

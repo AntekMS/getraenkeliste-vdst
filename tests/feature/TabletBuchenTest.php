@@ -124,6 +124,33 @@ final class TabletBuchenTest extends DbTestCase
         $this->assertStringNotContainsString(' onclick', $seite->getBody());
     }
 
+    public function test_sammelkonten_sind_waehlbar_und_mitglied_ohne_pin_nicht(): void
+    {
+        $couleur = (new PersonModel())->sammelkontoId('Couleur');
+        $bund    = (new PersonModel())->sammelkontoId('Bund');
+        $ohnePin = $this->personAnlegen(['anzeigename' => 'Ohne Pin', 'pin' => null]);
+        $mitPin  = $this->personAnlegen(['anzeigename' => 'Mit Pin']);
+
+        $body = $this->get('tablet')->getBody();
+
+        $this->assertStringContainsString("tablet/waehlen/{$couleur}", $body);
+        $this->assertStringContainsString("tablet/waehlen/{$bund}", $body);
+        $this->assertStringContainsString("tablet/waehlen/{$mitPin}", $body);
+        $this->assertStringNotContainsString("tablet/waehlen/{$ohnePin}", $body);
+    }
+
+    public function test_sonstige_fehlen_in_zuletzt(): void
+    {
+        $artikel   = $this->artikelAnlegen();
+        $sonstiger = $this->personAnlegen(['anzeigename' => 'Sonstiger', 'gruppe' => 'sonstige']);
+        (new BuchungService())->bucheVorgang(BuchungService::neueVorgangId(), $sonstiger, $sonstiger, null, 'web', [['artikel_id' => $artikel, 'menge' => 1]]);
+
+        $kacheln = (new PersonModel())->tabletKacheln();
+
+        $this->assertSame([], $kacheln['zuletzt']);
+        $this->assertContains('Sonstiger', array_column($kacheln['alle'], 'anzeigename'));
+    }
+
     public function test_namensauswahl_leert_tablet_sitzung(): void
     {
         $person = $this->personAnlegen();

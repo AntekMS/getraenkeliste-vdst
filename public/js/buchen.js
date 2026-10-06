@@ -46,9 +46,17 @@
         }
     }
 
+    // Während einer laufenden Buchung/Stornierung nie zurückspringen (Bestätigung ginge verloren);
+    // nach der Antwort startet der Leerlauf neu.
     function leerlaufNeu() {
         clearTimeout(leerlaufTimer);
-        leerlaufTimer = setTimeout(fertig, timeoutS * 1000);
+        leerlaufTimer = setTimeout(function () {
+            if (laeuft) {
+                leerlaufNeu();
+                return;
+            }
+            fertig();
+        }, timeoutS * 1000);
     }
 
     function zurueckStoppen() {
@@ -150,6 +158,9 @@
 
     function setzeLaeuft(an) {
         laeuft = an;
+        if (!an && fertigUrl && fertigForm) {
+            leerlaufNeu();
+        }
         spinner.hidden = !an;
         icon.hidden = an;
         rueckgaengigButton.disabled = an;
