@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Libraries;
 
 use App\Models\ArtikelModel;
+use App\Models\BereichModel;
 use App\Models\BuchungModel;
 use App\Models\PersonModel;
+use CodeIgniter\Database\BaseBuilder;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -69,6 +71,7 @@ class BuchungService
 
         $artikelModel = new ArtikelModel();
         $zeilen       = [];
+        $bereichIds   = [];
 
         foreach ($summiert as $artikelId => $menge) {
             $artikel = $artikelModel->findeBuchbar($artikelId);
@@ -91,17 +94,26 @@ class BuchungService
                 'gebucht_von_id'   => $gebuchtVonId,
                 'geraet_id'        => $geraetId,
             ];
+            $bereichIds[] = (int) $artikel['bereich_id'];
         }
 
-        $this->vorDemSchreiben($vorgangId);
-
-        $jetzt = service('uhr')->jetzt()->format(self::FORMAT);
         $model = new BuchungModel();
 
         try {
-            $model->transaktion(static function () use ($zeilen, $model, $jetzt): void {
+            $model->transaktion(function () use ($zeilen, $model, $bereichIds, $vorgangId): void {
+                // Entscheidung 1: erst die Bereiche sperren, dann „jetzt“ und den Stichtag lesen.
+                // Ein paralleler Abschluss ist damit entweder schon committet (→ geprüft) oder wartet.
+                $this->sperreBereiche($bereichIds, $vorgangId);
+                $jetzt = service('uhr')->jetzt();
+
+                foreach (array_unique($bereichIds) as $bereichId) {
+                    if (service('zeitraeume')->istEingefroren($jetzt, $bereichId)) {
+                        throw new BuchungAbgelehnt('Dieser Zeitraum ist abgeschlossen. Nicht gebucht.');
+                    }
+                }
+
                 foreach ($zeilen as $zeile) {
-                    $zeile['gebucht_at'] = $jetzt;
+                    $zeile['gebucht_at'] = $jetzt->format(self::FORMAT);
 
                     if ($model->insert($zeile) === false) {
                         throw new DatabaseException('Buchung konnte nicht gespeichert werden.');
@@ -166,13 +178,12 @@ class BuchungService
             throw new BuchungAbgelehnt('Bereits storniert.');
         }
 
-        $this->pruefeStornierbar($alle[0]['gebucht_at']);
-        $this->markiere(array_column($offen, 'id'), $stornoVonId);
+        $this->storniere($offen, $stornoVonId);
     }
 
     public function storniereBuchung(int $buchungId, ?int $stornoVonId): void
     {
-        $buchung = (new BuchungModel())->find($buchungId);
+        $buchung = $this->zeilenQuery()->where('b.id', $buchungId)->get()->getRowArray();
 
         if ($buchung === null) {
             throw new BuchungAbgelehnt('Unbekannte Buchung.');
@@ -182,41 +193,38 @@ class BuchungService
             throw new BuchungAbgelehnt('Bereits storniert.');
         }
 
-        $this->pruefeStornierbar($buchung['gebucht_at']);
-        $this->markiere([$buchungId], $stornoVonId);
-    }
-
-    private function pruefeStornierbar(string $gebuchtAt): void
-    {
-        $gebucht = new DateTimeImmutable($gebuchtAt, new DateTimeZone('Europe/Berlin'));
-
-        // Stufe 1: es gibt noch keinen Stichtag; Stufe 2 liefert hier das Datum.
-        $letzterStichtag = null;
-
-        if (ZeitraumErmittler::istEingefroren($gebucht, $letzterStichtag)) {
-            throw new BuchungAbgelehnt('Dieser Zeitraum ist abgeschlossen.');
-        }
-
-        if (! StornoFrist::istOffen($gebucht, service('uhr')->jetzt(), service('einstellungen')->int('storno_frist_min'))) {
-            throw new BuchungAbgelehnt('Die Storno-Frist ist abgelaufen.');
-        }
+        $this->storniere([$buchung], $stornoVonId);
     }
 
     /**
+     * Eine Transaktion: Bereiche sperren, dann Einfrieren (vor der Frist) prüfen, dann markieren.
      * Alles oder nichts; die Bedingung `storniert_at IS NULL` fängt einen parallelen Storno ab.
      *
-     * @param list<int|string> $ids
+     * @param non-empty-list<array<string, mixed>> $zeilen Buchungszeilen inkl. bereich_id (alle desselben Vorgangs)
      */
-    private function markiere(array $ids, ?int $stornoVonId): void
+    private function storniere(array $zeilen, ?int $stornoVonId): void
     {
-        $jetzt = service('uhr')->jetzt()->format(self::FORMAT);
+        (new BuchungModel())->transaktion(function () use ($zeilen, $stornoVonId): void {
+            $this->sperreBereiche(array_map(static fn (array $z): int => (int) $z['bereich_id'], $zeilen), $zeilen[0]['vorgang_id']);
+            $jetzt = service('uhr')->jetzt();
 
-        (new BuchungModel())->transaktion(static function () use ($ids, $stornoVonId, $jetzt): void {
-            foreach ($ids as $id) {
-                $builder = db_connect()->table('buchungen')
-                    ->where('id', (int) $id)
-                    ->where('storniert_at', null);
-                $builder->update(['storniert_at' => $jetzt, 'storniert_von_id' => $stornoVonId, 'storno_grund' => null, 'updated_at' => $jetzt]);
+            foreach ($zeilen as $z) {
+                if (service('zeitraeume')->istEingefroren(self::zeit($z['gebucht_at']), (int) $z['bereich_id'])) {
+                    throw new BuchungAbgelehnt('Dieser Zeitraum ist abgeschlossen.');
+                }
+            }
+
+            if (! StornoFrist::istOffen(self::zeit($zeilen[0]['gebucht_at']), $jetzt, service('einstellungen')->int('storno_frist_min'))) {
+                throw new BuchungAbgelehnt('Die Storno-Frist ist abgelaufen.');
+            }
+
+            $zeitpunkt = $jetzt->format(self::FORMAT);
+
+            foreach ($zeilen as $z) {
+                db_connect()->table('buchungen')
+                    ->where('id', (int) $z['id'])
+                    ->where('storniert_at', null)
+                    ->update(['storniert_at' => $zeitpunkt, 'storniert_von_id' => $stornoVonId, 'storno_grund' => null, 'updated_at' => $zeitpunkt]);
 
                 if (db_connect()->affectedRows() !== 1) {
                     throw new BuchungAbgelehnt('Bereits storniert.');
@@ -226,7 +234,26 @@ class BuchungService
     }
 
     /**
-     * Testnaht: läuft nach den Prüfungen, direkt vor der Buchungs-Transaktion.
+     * Erste Abfrage jeder Schreib-Transaktion (Entscheidung 1). Danach wird der Stichtag frisch gelesen:
+     * Der Cache könnte aus der Zeit vor der Sperre stammen.
+     *
+     * @param list<int> $bereichIds
+     */
+    private function sperreBereiche(array $bereichIds, string $vorgangId): void
+    {
+        (new BereichModel())->sperre($bereichIds);
+        service('zeitraeume')->vergiss();
+        $this->vorDemSchreiben($vorgangId);
+    }
+
+    private static function zeit(string $wert): DateTimeImmutable
+    {
+        return new DateTimeImmutable($wert, new DateTimeZone('Europe/Berlin'));
+    }
+
+    /**
+     * Testnaht: läuft in der Schreib-Transaktion (Buchen und Storno) direkt nach der Bereichssperre,
+     * vor Stichtag-Prüfung und Schreiben.
      */
     protected function vorDemSchreiben(string $vorgangId): void
     {
@@ -295,12 +322,15 @@ class BuchungService
      */
     private function zeilen(string $vorgangId): array
     {
+        return $this->zeilenQuery()->where('b.vorgang_id', $vorgangId)->orderBy('b.id')->get()->getResultArray();
+    }
+
+    private function zeilenQuery(): BaseBuilder
+    {
         return db_connect()->table('buchungen b')
-            ->select('b.*, a.name AS artikel_name')
+            ->select('b.*, a.name AS artikel_name, k.bereich_id')
             ->join('artikel a', 'a.id = b.artikel_id')
-            ->where('b.vorgang_id', $vorgangId)
-            ->orderBy('b.id')
-            ->get()->getResultArray();
+            ->join('kategorien k', 'k.id = a.kategorie_id');
     }
 
     /**

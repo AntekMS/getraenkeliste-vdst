@@ -87,6 +87,33 @@ abstract class DbTestCase extends CIUnitTestCase
         ], $werte), true);
     }
 
+    protected function bereichId(string $schluessel): int
+    {
+        return (int) db_connect()->table('bereiche')->where('schluessel', $schluessel)->get()->getRow()->id;
+    }
+
+    /**
+     * Legt eine Auszählung direkt in der DB an (Standard: abgeschlossen, Bereich getraenke, art regulaer).
+     *
+     * @param array<string, mixed> $werte
+     */
+    protected function auszaehlungAnlegen(string $stichtag, string $status = 'abgeschlossen', string $bereich = 'getraenke', array $werte = []): int
+    {
+        $zeile = array_merge([
+            'bereich_id'       => $this->bereichId($bereich),
+            'art'              => 'regulaer',
+            'stichtag'         => $stichtag,
+            'zeitraum_von'     => '2026-01-01 00:00:00',
+            'status'           => $status,
+            'erstellt_von_id'  => $werte['erstellt_von_id'] ?? $this->personAnlegen(),
+            'abgeschlossen_at' => $status === 'abgeschlossen' ? $stichtag : null,
+        ], $werte);
+
+        db_connect()->table('auszaehlungen')->insert($zeile);
+
+        return (int) db_connect()->insertID();
+    }
+
     /**
      * Fixiert „jetzt“ für `service('uhr')`, z. B. '2026-10-05 12:00:00' (Europe/Berlin).
      */

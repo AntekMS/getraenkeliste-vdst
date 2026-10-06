@@ -382,6 +382,146 @@ final class BuchungServiceTest extends DbTestCase
         $this->assertSame('2× Helles – 3,00 €', $zweit['zusammenfassung']);
     }
 
+    public function test_storno_im_eingefrorenen_zeitraum_abgelehnt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 2]]);
+        $zeile = db_connect()->table('buchungen')->where('vorgang_id', self::V1)->get()->getRowArray();
+
+        // Stichtag = Buchungszeitpunkt (Grenzsekunde gehört zum abgeschlossenen Zeitraum); Storno-Frist läuft noch.
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+        $this->uhrStellen('2026-10-05 12:05:00');
+
+        foreach ([
+            static fn () => service('buchungen')->storniereVorgang(self::V1, $konto),
+            static fn () => service('buchungen')->storniereBuchung((int) $zeile['id'], $konto),
+        ] as $storno) {
+            try {
+                $storno();
+                $this->fail('Ablehnung erwartet');
+            } catch (BuchungAbgelehnt $e) {
+                $this->assertSame('Dieser Zeitraum ist abgeschlossen.', $e->getMessage());
+            }
+        }
+
+        // Auch nach Fristablauf meldet der eingefrorene Zeitraum sich zuerst.
+        $this->uhrStellen('2026-10-05 13:00:00');
+
+        try {
+            service('buchungen')->storniereVorgang(self::V1, $konto);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Dieser Zeitraum ist abgeschlossen.', $e->getMessage());
+        }
+
+        $this->seeInDatabase('buchungen', ['vorgang_id' => self::V1, 'storniert_at' => null]);
+    }
+
+    public function test_storno_direkt_nach_dem_stichtag_bleibt_erlaubt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $this->auszaehlungAnlegen('2026-10-05 11:59:59');
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00', 'entwurf');
+
+        service('buchungen')->storniereVorgang(self::V1, $konto);
+
+        $this->seeNumRecords(0, 'buchungen', ['vorgang_id' => self::V1, 'storniert_at' => null]);
+    }
+
+    public function test_rueckgaengig_nach_abschluss_abgelehnt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'tablet', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        // Abschluss in derselben Minute: die Tablet-Rückgängig-Taste käme noch innerhalb der Frist.
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+        $this->uhrStellen('2026-10-05 12:00:30');
+
+        $this->expectException(BuchungAbgelehnt::class);
+        $this->expectExceptionMessage('Dieser Zeitraum ist abgeschlossen.');
+        service('buchungen')->storniereVorgang(self::V1, $konto);
+    }
+
+    public function test_buchung_im_eingefrorenen_zeitraum_abgelehnt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        // Ein (paralleler) Abschluss mit Stichtag = jetzt ist bereits committet.
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+
+        try {
+            service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Dieser Zeitraum ist abgeschlossen. Nicht gebucht.', $e->getMessage());
+        }
+
+        $this->seeNumRecords(0, 'buchungen', []);
+    }
+
+    public function test_buchung_sperrt_bereich(): void
+    {
+        $konto   = $this->personAnlegen();
+        $helles  = $this->artikelAnlegen();
+        $bereich = $this->bereichId('getraenke');
+
+        $service = $this->dienstMitSperrprobe($bereich);
+        $r       =$service->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        $this->assertFalse($r['wiederholt']);
+        $this->assertInstanceOf(DatabaseException::class, $service->fehler);
+        $this->assertSame(1205, $service->fehler->getCode(), $service->fehler->getMessage());
+        $this->seeNumRecords(1, 'buchungen', ['vorgang_id' => self::V1]);
+    }
+
+    public function test_storno_sperrt_bereich(): void
+    {
+        $konto   = $this->personAnlegen();
+        $helles  = $this->artikelAnlegen();
+        $bereich = $this->bereichId('getraenke');
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        $service = $this->dienstMitSperrprobe($bereich);
+        $service->storniereVorgang(self::V1, $konto);
+
+        $this->assertInstanceOf(DatabaseException::class, $service->fehler);
+        $this->assertSame(1205, $service->fehler->getCode(), $service->fehler->getMessage());
+        $this->seeNumRecords(0, 'buchungen', ['vorgang_id' => self::V1, 'storniert_at' => null]);
+    }
+
+    /**
+     * Dienst, dessen Hook (in der Transaktion, nach der Bereichssperre) über eine zweite Verbindung
+     * versucht, den Bereich selbst zu sperren; die Exception landet in `$fehler`.
+     */
+    private function dienstMitSperrprobe(int $bereichId): BuchungService
+    {
+        return new class ($bereichId) extends BuchungService {
+            public ?\Throwable $fehler = null;
+
+            public function __construct(private int $bereich)
+            {
+            }
+
+            protected function vorDemSchreiben(string $vorgangId): void
+            {
+                $zweite = \Config\Database::connect('tests', false);
+
+                try {
+                    $zweite->query('SET SESSION innodb_lock_wait_timeout = 1');
+                    $zweite->query('SELECT id FROM bereiche WHERE id = ? FOR UPDATE', [$this->bereich]);
+                } catch (\Throwable $e) {
+                    $this->fehler = $e;
+                } finally {
+                    $zweite->close();
+                }
+            }
+        };
+    }
+
     private function dienstMitKonkurrenz(string $vorgangId, int $kontoId, int $vonId, int $artikelId): BuchungService
     {
         return new class ($vorgangId, $kontoId, $vonId, $artikelId) extends BuchungService {
@@ -389,13 +529,23 @@ final class BuchungServiceTest extends DbTestCase
             {
             }
 
+            /**
+             * Der Hook läuft innerhalb der Buchungs-Transaktion; der „parallele“ Request schreibt
+             * deshalb über eine eigene Verbindung (autocommit) wie ein echter zweiter Request.
+             */
             protected function vorDemSchreiben(string $vorgangId): void
             {
-                db_connect()->table('buchungen')->insert([
-                    'vorgang_id' => $this->v, 'konto_id' => $this->k, 'artikel_id' => $this->a, 'menge' => 1,
-                    'einzelpreis_cent' => 100, 'quelle' => 'web', 'gebucht_von_id' => $this->von,
-                    'gebucht_at' => '2026-10-05 12:00:00',
-                ]);
+                $zweite = \Config\Database::connect('tests', false);
+
+                try {
+                    $zweite->table('buchungen')->insert([
+                        'vorgang_id' => $this->v, 'konto_id' => $this->k, 'artikel_id' => $this->a, 'menge' => 1,
+                        'einzelpreis_cent' => 100, 'quelle' => 'web', 'gebucht_von_id' => $this->von,
+                        'gebucht_at' => '2026-10-05 12:00:00',
+                    ]);
+                } finally {
+                    $zweite->close();
+                }
             }
         };
     }

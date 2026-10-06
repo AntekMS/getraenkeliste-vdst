@@ -33,11 +33,6 @@ final class AdminStammdatenTest extends DbTestCase
         return $this->alsAngemeldet($this->admin)->post($pfad, $daten + $this->csrf());
     }
 
-    private function bereichId(string $schluessel): int
-    {
-        return (int) db_connect()->table('bereiche')->where('schluessel', $schluessel)->get()->getRow()->id;
-    }
-
     private function kategorieAnlegen(string $name, string $bereich = 'getraenke'): int
     {
         $model = new KategorieModel();

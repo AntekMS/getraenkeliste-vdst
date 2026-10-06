@@ -376,6 +376,21 @@ final class TabletBuchenTest extends DbTestCase
         $this->assertSame(1, (new BuchungModel())->where('storniert_at IS NOT NULL')->countAllResults());
     }
 
+    public function test_rueckgaengig_nach_abschluss_abgelehnt(): void
+    {
+        $person  = $this->personAnlegen();
+        $vorgang = $this->warenkorb($this->artikelAnlegen());
+        $this->json('tablet/buchen', $vorgang, $this->sitzung($person))->assertOK();
+
+        // Abschluss mit Stichtag = Buchungszeitpunkt, Storno-Frist läuft noch: direkter POST trotzdem abgelehnt.
+        $this->auszaehlungAnlegen(self::JETZT);
+        $antwort = $this->json('tablet/rueckgaengig', ['vorgang_id' => $vorgang['vorgang_id']], $this->sitzung($person, self::JETZT, $vorgang['vorgang_id']));
+
+        $antwort->assertStatus(422);
+        $this->assertSame('Dieser Zeitraum ist abgeschlossen.', $this->antwort($antwort)['meldung']);
+        $this->assertSame(0, (new BuchungModel())->where('storniert_at IS NOT NULL')->countAllResults());
+    }
+
     public function test_tablet_sitzung_laeuft_nach_300s_ab(): void
     {
         $person  = $this->personAnlegen();

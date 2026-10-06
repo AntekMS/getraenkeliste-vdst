@@ -51,12 +51,12 @@ class ArtikelModel extends Model
     }
 
     /**
-     * @return ?array<string, mixed> Artikel inkl. bereich_schluessel, null wenn nicht buchbar
+     * @return ?array<string, mixed> Artikel inkl. bereich_id und bereich_schluessel, null wenn nicht buchbar
      */
     public function findeBuchbar(int $id): ?array
     {
         return $this->buchbarQuery()
-            ->select('a.*, b.schluessel AS bereich_schluessel')
+            ->select('a.*, b.id AS bereich_id, b.schluessel AS bereich_schluessel')
             ->where('a.id', $id)
             ->get()->getRowArray();
     }

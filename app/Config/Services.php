@@ -8,11 +8,12 @@ use App\Libraries\Einstellungen;
 use App\Libraries\Geraete;
 use App\Libraries\Protokollierer;
 use App\Libraries\Uhr;
+use App\Libraries\Zeitraeume;
 use CodeIgniter\Config\BaseService;
 
 /**
  * Anwendungsspezifische Services: `uhr` (einzige Quelle für „jetzt“),
- * `einstellungen` (je Request gecacht) und `protokollierer`.
+ * `einstellungen`, `zeitraeume` (beide je Request gecacht) und `protokollierer`.
  */
 class Services extends BaseService
 {
@@ -68,5 +69,14 @@ class Services extends BaseService
         }
 
         return new Protokollierer();
+    }
+
+    public static function zeitraeume(bool $getShared = true): Zeitraeume
+    {
+        if ($getShared) {
+            return static::getSharedInstance('zeitraeume');
+        }
+
+        return new Zeitraeume();
     }
 }

@@ -52,7 +52,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   Raw-SQL, InnoDB, utf8mb4_unicode_ci, FKs `ON DELETE RESTRICT`. Migrationen referenzieren
   **keine** App-Klassen (Konstanten werden wiederholt; `MigrationTest` prüft sie gegen die App).
 - `app/Models/` — CI4-Models (`array`, `$useTimestamps`): `PersonModel` (`rollen`,
-  `findeAktivNachBenutzername`, `sammelkontoId`, `istAktiv`), `BereichModel::aktive`,
+  `findeAktivNachBenutzername`, `sammelkontoId`, `istAktiv`), `BereichModel::aktive` und `::sperre(ids)` (`SELECT … ORDER BY id FOR UPDATE`, nur in Transaktionen, als erste Abfrage),
   `AnmeldeTokenModel::loescheFuerPerson`, `ArtikelModel::buchbar/findeBuchbar`, dazu schlanke
   Models für Kategorie, Buchung, Gerät, Freischaltcode, Einstellung, Protokoll, PersonRolle.
   Stufe 2: `AuszaehlungModel` (`letzteAbgeschlossene`, `entwurf`, `abgeschlossene`),
@@ -74,11 +74,21 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   sonst „Ungültiger Vorgang.“); sonst alles-oder-nichts in einer manuellen Transaktion (`transBegin/Commit/Rollback`), ein
   `gebucht_at` je Vorgang, aktueller Preis; Unique-Verletzung im Wettlauf → Rollback + gespeichertes Ergebnis. Doppelte
   Artikel werden addiert (Summe ≤ 99), max. 30 Positionen. `storniereVorgang/storniereBuchung` prüfen Doppel-Storno, Frist
-  (`storno_frist_min` ab `gebucht_at`) und `ZeitraumErmittler::istEingefroren` (Stichtag in Stufe 1 noch `null`); **wer**
+  (`storno_frist_min` ab `gebucht_at`) und Einfrieren (`zeitraeume()->istEingefroren`, **vor** der Frist, Meldung „Dieser Zeitraum ist abgeschlossen.“); **wer**
   stornieren darf, entscheidet der Controller. `zusammenfassung()` ist statisch/rein. **Transaktionen laufen über `BuchungModel::transaktion()` (Trait `Transaktion`) mit `transException(true)`: CI4 wirft in Transaktionen sonst nicht, ein fehlgeschlagener Query würde still Teilergebnisse committen.** Storno-Update mit `storniert_at IS NULL` + `affectedRows`. Ergebnis enthält `storniert` (Replay eines inzwischen stornierten Vorgangs).
+  **Bereichssperre (Stufe 2, Entscheidung 1):** Buchen und Storno sperren in ihrer Transaktion zuerst die Bereiche der Artikel
+  (`BereichModel::sperre`), leeren den `zeitraeume`-Cache, lesen dann „jetzt“ und den Stichtag; Buchen in einen eingefrorenen
+  Zeitraum (Abschluss mit Stichtag ≥ jetzt schon committet) → „Dieser Zeitraum ist abgeschlossen. Nicht gebucht.“. Testnaht
+  `vorDemSchreiben` läuft **in** der Transaktion direkt nach der Sperre (Buchen und Storno); Konkurrenz-Tests schreiben daher über
+  eine zweite Verbindung (`\Config\Database::connect('tests', false)`, danach `close()`).
+- `app/Libraries/Zeitraeume.php` (Service `zeitraeume()`, je Request gecacht, `vergiss()` leert): `letzterStichtag(bereichId)` (nur
+  **abgeschlossene** Auszählungen), `beginn` (Stichtag oder Inbetriebnahme), `beginnInklusiv` (nur ohne Abschluss), `istEingefroren(zeit, bereichId)`
+  (≤ Stichtag), `fruehere` (`von`/`bis`/`von_inklusiv`/`auszaehlung_id`, neueste zuerst; `von` = vorheriger Stichtag bzw. Inbetriebnahme).
+  `BuchungModel::fuerKonto/vonPersonAufSammelkonten(…, ab, abInklusiv, bereichId)`, `offenerBetrag(…, ab, abInklusiv)`,
+  `summeImZeitraum(konto, bereich, von exkl., bis inkl., vonInklusiv)`.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
-  `artikelAnlegen`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
+  `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
   `tearDown` setzt alle Services zurück, damit Mocks/Einstellungs-Cache nicht lecken) (Passwort-Hashes mit Kosten 4 für Tempo)
 - `app/Libraries/Anmeldung.php` (Service `anmeldung()`) — Login am eigenen Gerät:
   `pruefePasswort` → `passwortPruefen($person, $passwort)` (auch für das aktuelle Passwort auf `konto/passwort` und `konto/pin`):
@@ -110,7 +120,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   Rückgängig nur für `konto_id`/`gebucht_von_id` = angemeldete Person, sonst 403. `public/js/buchen.js` liest
   Endpunkte/Vorgang-ID/Token aus `data-*` an `#buchen-app` (auch für das Tablet gedacht). `RechtFilter` ohne Argument → 403.
 - Meine Buchungen (`MeineBuchungenController`): `GET meine-buchungen` (`angemeldet` + `recht:buchen`), `POST meine-buchungen/storno/(:num)`
-  (`recht:eigene_stornieren`). Zeitraum Stufe 1 = ab `Einstellungen::inbetriebnahme()`. `BuchungModel::fuerKonto`,
+  (`recht:eigene_stornieren`). Laufender Zeitraum je aktivem Bereich ab `zeitraeume()->beginn` (`beginnInklusiv`), darunter „Frühere Zeiträume“ je Bereich (von – bis, eigene Summe über `summeImZeitraum`, ausgeblendet ohne Abschluss). `BuchungModel::fuerKonto`,
   `vonPersonAufSammelkonten` (nur Sammelkonten, `gebucht_von_id` = Person), `offenerBetrag` (Cent, ohne stornierte). Je aktivem
   Bereich eine Tabelle; Sammelkonto-Buchungen separat und nicht im Betrag. Storno erlaubt für `konto_id`/`gebucht_von_id` = ich,
   sonst (auch unbekannte ID) 403; Redirect mit Flash success/error (BuchungAbgelehnt-Text); kein Protokolleintrag.
