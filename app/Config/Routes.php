@@ -73,4 +73,9 @@ $routes->group('admin', ['filter' => ['angemeldet', 'recht:admin'], 'namespace' 
     $routes->post('artikel/(:num)', 'StammdatenController::artikelSpeichern/$1');
     $routes->post('artikel/(:num)/verschieben/(hoch|runter)', 'StammdatenController::artikelVerschieben/$1/$2');
     $routes->post('artikel/(:num)/archivieren', 'StammdatenController::artikelArchivieren/$1');
+
+    $routes->get('einstellungen', 'EinstellungenController::index');
+    $routes->post('einstellungen', 'EinstellungenController::speichern');
+
+    $routes->get('protokoll', 'ProtokollController::index');
 });

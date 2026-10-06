@@ -10,7 +10,7 @@ Plan: `docs/superpowers/plans/`. Das Tool bleibt bewusst klein.
 
 ## Stack
 - CodeIgniter 4.7 (PHP 8.3), MySQL 8, PHPUnit 10
-- Bootstrap 5 + Bootstrap Icons (kommen mit den Views)
+- Bootstrap 5 + Bootstrap Icons (CDN, Theme-CSS `public/css/app.css`)
 - Docker: `getraenkeliste-web` (Port **8090**), `getraenkeliste-db` (kein Port nach außen),
   `getraenkeliste-phpmyadmin` (Port **8091**). Kein Mailpit, die App verschickt keine Mails.
 - Zeitzone `Europe/Berlin` (App, PHP, MySQL-Container)
@@ -36,7 +36,7 @@ Auf diesem Rechner gibt es **kein Host-PHP/Composer** — alles im Web-Container
   nicht mit CRLF ankommen.
 
 ## Architektur-Landkarte
-Aufbau bisher:
+Aufbau (Stufe 1 komplett):
 - `app/Config/` — angepasst: `App` (Europe/Berlin, Locale `de`, kein `index.php` in URLs),
   `Security` (CSRF `session`), `Session`, `Cookie`, `Filters` (`csrf` global), `Database`
   (liest `DB_HOST/DB_NAME/DB_USER/DB_PASS` aus der Compose-Umgebung)
@@ -159,6 +159,17 @@ Aufbau bisher:
   **CSRF am Tablet:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Config\Filters`); `TabletCsrfFilter` leitet Formular-POSTs mit
   ungültigem Token zu `tablet` mit Flash (statt `redirect()->back()`), JSON/AJAX bleibt 403. Neue Tablet-Routen gehören in die Gruppe `tablet` in `Routes.php`.
 
+- Admin Einstellungen/Protokoll (Task 16, `Admin\EinstellungenController`, `Admin\ProtokollController`): `admin/einstellungen` zeigt je Eintrag aus
+  `EinstellungDefinition::aenderbar()` ein Feld (Label, Bereichs-Hinweis), `inbetriebnahme_at` nur als gesperrtes Anzeigefeld (`d.m.Y H:i`).
+  POST validiert **alle** Felder zuerst (ein Fehler → nichts gespeichert, Formular mit Fehlern je Feld), dann `Einstellungen::setze` (unveränderte
+  Werte werden übersprungen, nicht protokolliert); fehlende/nicht änderbare Felder werden ignoriert. Flash „Einstellungen gespeichert.“.
+  `admin/protokoll`: Filter `person`, `tabelle`, `von`, `bis` (ungültige Daten werden ignoriert), neueste zuerst, 50 je Seite
+  (`ProtokollModel::gefiltert()` + `paginate`; Seite wird explizit aus `?page=` gelesen; Pager-Template `bootstrap_full` in `Views/pagers`,
+  `Config\Pager`), alt/neu als escapte Schlüssel-Wert-Liste, Person „System“ bei `person_id` NULL.
+- `tests/feature/ZugriffsschutzTest` — Routenmatrix: **jede** Route (feste Liste, bei neuen Routen ergänzen!) × anonym/mitglied/admin/tablet;
+  ein Test je Fall (Session-CSRF/Cookie leben nicht über mehrere Requests), `$refresh = false` + `uniqid`-Benutzernamen für Tempo (~20 s statt ~3 min).
+  `php spark routes` zeigt für `verschieben/(hoch|runter)` fälschlich `<unknown>`-Filter (Anzeigefehler, die Filter greifen; der Test belegt es).
+
 ## Konventionen & Invarianten
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token
@@ -168,6 +179,13 @@ Aufbau bisher:
 - `phpunit.xml.dist` trägt das Test-DB-Passwort als Literal (= Compose-Default
   `getraenkepass123`); phpunit expandiert keine `${DB_PASS}`.
 - Alle Meldungen auf Deutsch.
+- **Idempotenz:** jede Buchung trägt eine `vorgang_id` (UUIDv4, serverseitig erzeugt, wandert mit dem Formular); Wiederholung liefert das gespeicherte Ergebnis.
+- **Zeit:** nie `new DateTime()`/`time()` in App-Code, immer `service('uhr')->jetzt()` (Tests fixieren sie mit `uhrStellen`).
+- **Cookies (R10):** Cookie-Änderungen (`gl_merken`, `gl_geraet`) setzt der Filter in `after()` auf die gesendete Antwort; `->withCookies()` nur bei Redirects aus `before()` und ungefilterten Routen. Geräte-Cookie wird gleitend bei jeder Tablet-Antwort erneuert.
+- **Transaktionen (R12):** mehrstufige Schreibvorgänge laufen in `transaktion()` (Trait mit `transException(true)`); sonst committet CI4 Teilergebnisse still.
+- **Tablet-CSRF-Ausnahme:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Configilters`) und nur über `tablet` + `tablet_csrf` erreichbar; neue tablet-routen gehören in die routengruppe `tablet`. alle übrigen posts behalten `csrf` (+ `security::$regenerate = false`).
+- **protokoll:** nie hashes, passwörter, pins, freischalt-/einmalcodes (`protokollierer` entfernt `*_hash`-schlüssel; klartext-geheimnisse gehören nicht hinein). sortieren und eigene buchungen/stornos werden nicht protokolliert.
+- **rechte:** berechtigung nur über filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`) in `routes.php`; neue route ⇒ `zugriffsschutztest` erweitern.
 
 ## Bewusste Abweichungen vom Kassensystem (Spec Abschnitt 3)
 - Rollen und Mehrbenutzerbetrieb sind der Zweck dieser App.
