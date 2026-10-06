@@ -100,10 +100,10 @@ Die Rechte werden zentral in einer reinen Klasse `Berechtigung` (Rolle × Bereic
 | `person_rollen` | `person_id`, `rolle` (`getraenkewart`/`kioskwart`/`kassenwart`/`admin`); „Mitglied“ ergibt sich aus `typ = mitglied` |
 | `kategorien` | `id`, `bereich_id`, `name`, `sortierung`, `archiviert_at` |
 | `artikel` | `id`, `kategorie_id`, `name`, `preis_cent`, `einheit`, `gebinde_groesse` (Stück je Kiste, nullable), `mindestbestand`, `bestand_fuehren` (bool), `sortierung`, `archiviert_at` |
-| `buchungen` | `id`, `vorgang_id` (UUID des Warenkorbs), `konto_id` → personen, `artikel_id`, `menge`, `einzelpreis_cent` (Preis zum Buchungszeitpunkt), `quelle` (`tablet`/`web`/`korrektur`), `gebucht_von_id` (nullable), `geraet_id` (nullable), `gebucht_at`, `storniert_at`, `storniert_von_id`, `storno_grund` |
+| `buchungen` | `id`, `vorgang_id` (UUID des Warenkorbs), `konto_id` → personen, `artikel_id`, `menge`, `einzelpreis_cent` (Preis zum Buchungszeitpunkt), `quelle` (`tablet`/`web`/`korrektur`), `gebucht_von_id` (nullable), `geraet_id` (nullable), `gebucht_at`, `storniert_at`, `storniert_von_id`, `storno_grund`, `bemerkung` (nullable, Grund einer Korrekturbuchung) |
 | `bestandsbewegungen` | `id`, `artikel_id`, `art` (`lieferung`/`schwund`/`korrektur`), `menge` (±), `einkaufspreis_cent` (nullable), `bemerkung`, `person_id`, `erfolgt_at` |
 | `auszaehlungen` | `id`, `bereich_id`, `art` (`start`/`regulaer`), `stichtag`, `zeitraum_von`, `status` (`entwurf`/`abgeschlossen`), `erstellt_von_id`, `abgeschlossen_at`, `datei_pfad`, `bemerkung` |
-| `auszaehlung_positionen` | `auszaehlung_id`, `artikel_id`, `anfangsbestand`, `lieferungen`, `schwund_erfasst`, `korrekturen`, `verkauft`, `soll`, `ist`, `differenz`, `preis_cent` |
+| `auszaehlung_positionen` | `auszaehlung_id`, `artikel_id`, `anfangsbestand`, `lieferungen`, `schwund_erfasst`, `korrekturen`, `verkauft`, `soll`, `ist`, `differenz`, `start` (bool: Artikel hatte keine frühere Position, Differenz zählt nicht als Schwund; `ist` ist im Entwurf NULL), `preis_cent` |
 | `spenden` | `id`, `spender_person_id` (nullable), `spender_freitext` (nullable), `betrag_cent`, `datum`, `zweck`, `bemerkung`, `erfasst_von_id`, `storniert_at` |
 | `geraete` | `id`, `name`, `token_hash`, `zuletzt_gesehen_at`, `gesperrt_at` |
 | `freischaltcodes` | `id`, `code_hash`, `gueltig_bis`, `erstellt_von_id`, `eingeloest_at` |

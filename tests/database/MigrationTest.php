@@ -69,4 +69,58 @@ final class MigrationTest extends DbTestCase
         $this->expectException(DatabaseException::class);
         db_connect()->table('buchungen')->insert($zeile);
     }
+
+    public function test_bestandstabellen_angelegt(): void
+    {
+        $db = db_connect();
+
+        $this->assertEqualsCanonicalizing(
+            ['id', 'artikel_id', 'art', 'menge', 'einkaufspreis_cent', 'bemerkung', 'person_id', 'erfolgt_at', 'created_at', 'updated_at'],
+            $db->getFieldNames('bestandsbewegungen'),
+        );
+        $this->assertEqualsCanonicalizing(
+            ['id', 'bereich_id', 'art', 'stichtag', 'zeitraum_von', 'status', 'erstellt_von_id', 'abgeschlossen_at', 'datei_pfad', 'bemerkung', 'created_at', 'updated_at'],
+            $db->getFieldNames('auszaehlungen'),
+        );
+        $this->assertEqualsCanonicalizing(
+            ['auszaehlung_id', 'artikel_id', 'anfangsbestand', 'lieferungen', 'schwund_erfasst', 'korrekturen', 'verkauft', 'soll', 'ist', 'differenz', 'start', 'preis_cent', 'created_at', 'updated_at'],
+            $db->getFieldNames('auszaehlung_positionen'),
+        );
+
+        $bewegungen = array_column($db->getIndexData('bestandsbewegungen'), 'fields');
+        $this->assertContains(['artikel_id', 'erfolgt_at'], $bewegungen);
+
+        $auszaehlungen = array_column($db->getIndexData('auszaehlungen'), 'fields');
+        $this->assertContains(['bereich_id', 'status', 'stichtag'], $auszaehlungen);
+
+        $this->assertSame(['auszaehlung_id', 'artikel_id'], $db->getIndexData('auszaehlung_positionen')['PRIMARY']->fields);
+    }
+
+    public function test_buchungen_haben_bemerkung(): void
+    {
+        $this->assertContains('bemerkung', db_connect()->getFieldNames('buchungen'));
+    }
+
+    public function test_eine_position_je_artikel_und_auszaehlung(): void
+    {
+        $db        = db_connect();
+        $artikelId = $this->artikelAnlegen();
+        $personId  = $this->personAnlegen();
+        $bereichId = (int) $db->table('bereiche')->where('schluessel', 'getraenke')->get()->getRow()->id;
+
+        $db->table('auszaehlungen')->insert([
+            'bereich_id' => $bereichId, 'art' => 'start', 'stichtag' => '2026-10-06 12:00:00',
+            'zeitraum_von' => '2026-10-01 00:00:00', 'status' => 'entwurf', 'erstellt_von_id' => $personId,
+        ]);
+        $position = [
+            'auszaehlung_id' => (int) $db->insertID(), 'artikel_id' => $artikelId, 'anfangsbestand' => 0, 'lieferungen' => 0,
+            'schwund_erfasst' => 0, 'korrekturen' => 0, 'verkauft' => 0, 'soll' => 0, 'ist' => null,
+            'differenz' => 0, 'start' => 1, 'preis_cent' => 150,
+        ];
+
+        $db->table('auszaehlung_positionen')->insert($position);
+
+        $this->expectException(DatabaseException::class);
+        $db->table('auszaehlung_positionen')->insert($position);
+    }
 }

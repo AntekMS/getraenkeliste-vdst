@@ -46,13 +46,19 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
 - `app/Database/Migrations/` — 000001 Grundtabellen (`bereiche`, `personen`, `person_rollen`,
   `anmelde_tokens`, `einstellungen`, `protokoll`), 000002 `kategorien`/`artikel`, 000003 `buchungen`,
   000004 `geraete`/`freischaltcodes`, 000005 Startdaten (Bereiche `getraenke` aktiv / `kiosk`
-  inaktiv, Sammelkonten Couleur/Bund, Einstellungs-Defaults, `inbetriebnahme_at` = jetzt).
+  inaktiv, Sammelkonten Couleur/Bund, Einstellungs-Defaults, `inbetriebnahme_at` = jetzt),
+  Stufe 2: 2026-10-06-000001 Bestand (`buchungen.bemerkung`, `bestandsbewegungen`, `auszaehlungen`,
+  `auszaehlung_positionen` mit `start`-Flag und `ist` NULL im Entwurf).
   Raw-SQL, InnoDB, utf8mb4_unicode_ci, FKs `ON DELETE RESTRICT`. Migrationen referenzieren
   **keine** App-Klassen (Konstanten werden wiederholt; `MigrationTest` prüft sie gegen die App).
 - `app/Models/` — CI4-Models (`array`, `$useTimestamps`): `PersonModel` (`rollen`,
   `findeAktivNachBenutzername`, `sammelkontoId`, `istAktiv`), `BereichModel::aktive`,
   `AnmeldeTokenModel::loescheFuerPerson`, `ArtikelModel::buchbar/findeBuchbar`, dazu schlanke
   Models für Kategorie, Buchung, Gerät, Freischaltcode, Einstellung, Protokoll, PersonRolle.
+  Stufe 2: `AuszaehlungModel` (`letzteAbgeschlossene`, `entwurf`, `abgeschlossene`),
+  `AuszaehlungPositionModel::fuer`, `BestandsbewegungModel` (alle mit Trait `Transaktion`).
+  PhpSpreadsheet (`phpoffice/phpspreadsheet:^5`) braucht die PHP-Erweiterungen `gd` und `zip` (Dockerfile);
+  `GETRAENKELISTE_VERSION` in `Config/Constants.php`.
 - `app/Libraries/Uhr.php` + `Config/Services.php` — Shared Services `uhr()`, `einstellungen()`,
   `protokollierer()`. **Jede zeitabhängige Stelle holt „jetzt“ über `service('uhr')->jetzt()`**
   (`DateTimeImmutable`, Europe/Berlin), nie `new DateTime()`/`time()`. `Einstellungen` (`int`, `text`,
