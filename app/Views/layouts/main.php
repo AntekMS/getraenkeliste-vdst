@@ -36,6 +36,22 @@ $aktiv     = static fn (string $praefix): string => str_starts_with($pfad, $prae
             <i class="bi bi-person-gear" aria-hidden="true"></i> Konto
         </a>
 
+        <?php if (\App\Libraries\Berechtigung::darf($rollen, \App\Libraries\Berechtigung::BESTAND_PFLEGEN, 'getraenke')): ?>
+            <div class="app-nav-group">Getränkewart</div>
+            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/bestand') ?>" href="<?= base_url('wart/getraenke/bestand') ?>">
+                <i class="bi bi-boxes" aria-hidden="true"></i> Bestand
+            </a>
+            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/lieferung') ?>" href="<?= base_url('wart/getraenke/lieferung') ?>">
+                <i class="bi bi-box-seam" aria-hidden="true"></i> Lieferung
+            </a>
+            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/buchungen') ?>" href="<?= base_url('wart/getraenke/buchungen') ?>">
+                <i class="bi bi-journal-check" aria-hidden="true"></i> Buchungen
+            </a>
+            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/auszaehlung') ?>" href="<?= base_url('wart/getraenke/auszaehlung') ?>">
+                <i class="bi bi-clipboard-check" aria-hidden="true"></i> Auszählung
+            </a>
+        <?php endif; ?>
+
         <?php if (\App\Libraries\Berechtigung::darf($rollen, \App\Libraries\Berechtigung::ADMIN)): ?>
             <div class="app-nav-group">Verwaltung</div>
             <a class="app-nav-link app-nav-sub <?= $aktiv('admin/personen') ?>" href="<?= base_url('admin/personen') ?>">

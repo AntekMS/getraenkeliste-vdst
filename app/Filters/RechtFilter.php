@@ -10,8 +10,8 @@ use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
 
 /**
- * Alias `recht:<aktion>`: bereichsunabhängige Rechteprüfung über Berechtigung::darf().
- * Bereichsgebundene Prüfungen passieren im Controller.
+ * Alias `recht:<aktion>` oder `recht:<aktion>@<bereich>`: Rechteprüfung über Berechtigung::darf()
+ * (mit Bereich für die Wart-Routen; der Controller löst den Bereich zusätzlich auf und liefert 404 bei unbekannt/inaktiv).
  */
 class RechtFilter implements FilterInterface
 {
@@ -30,8 +30,11 @@ class RechtFilter implements FilterInterface
                 ->setBody(view('errors/keine_berechtigung'));
         }
 
-        foreach ($arguments as $aktion) {
-            if (! Berechtigung::darf($anmeldung->rollen(), $aktion)) {
+        foreach ($arguments as $argument) {
+            // `aktion@bereich`: am ersten `@` trennen; ein leerer Bereich ist ein Konfigurationsfehler (fail closed).
+            [$aktion, $bereich] = array_pad(explode('@', $argument, 2), 2, null);
+
+            if ($bereich === '' || ! Berechtigung::darf($anmeldung->rollen(), $aktion, $bereich)) {
                 return service('response')
                     ->setStatusCode(403)
                     ->setBody(view('errors/keine_berechtigung'));

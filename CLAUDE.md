@@ -86,6 +86,12 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   (≤ Stichtag), `fruehere` (`von`/`bis`/`von_inklusiv`/`auszaehlung_id`, neueste zuerst; `von` = vorheriger Stichtag bzw. Inbetriebnahme).
   `BuchungModel::fuerKonto/vonPersonAufSammelkonten(…, ab, abInklusiv, bereichId)`, `offenerBetrag(…, ab, abInklusiv)`,
   `summeImZeitraum(konto, bereich, von exkl., bis inkl., vonInklusiv)`.
+- Wart-Bereich (Stufe 2, Task 4): Routen `wart/<bereich>/…` (Schleife über `getraenke`/`kiosk` in `Routes.php`, Namespace `AppControllersWart`, Filter
+  `angemeldet` + `recht:<aktion>@<bereich>`; `RechtFilter` trennt am ersten `@`, leerer Bereich → 403). Der Controller bekommt den Schlüssel als Argument und
+  liefert 404 für unbekannte/inaktive Bereiche (Kiosk bis Stufe 3; Getränkewart bekommt dort 403, Admin 404). `GET wart/<bereich>/bestand` (`BestandController`,
+  View `wart/bestand`, Ampel über `badge-status-*`). `Libraries/BestandService` (Service `bestand()`): `fuerBereich(bereichId)` (je Kategorie, nur `bestand_fuehren`
+  und nicht archiviert) und `einzeln(artikelId)`; Bestand = Ist der letzten abgeschlossenen Position (sonst 0) + Bewegungen − nicht stornierte Buchungsmengen
+  im laufenden Zeitraum (`zeitraeume()`), über Aggregatabfragen. Navigation „Getränkewart“ nur mit `darf(…, bestand_pflegen, getraenke)`.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
@@ -210,7 +216,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   (`ProtokollModel::gefiltert()` + `paginate`; Seite wird explizit aus `?page=` gelesen (nur Ziffern, auf 1..letzte Seite begrenzt; Array-Parameter werden ignoriert); Pager-Template `bootstrap_full` in `Views/pagers`,
   `Config\Pager`), alt/neu als escapte Schlüssel-Wert-Liste, Person „System“ bei `person_id` NULL.
 - `tests/feature/ZugriffsschutzTest` — Routenmatrix: **jede** Route (feste Liste `ROUTEN`, bei neuen Routen ergänzen — `test_routenliste_entspricht_den_registrierten_routen`
-  gleicht sie mit `service('routes')->getRoutes()` aller Verben ab und wird sonst rot) × anonym/mitglied/admin/tablet;
+  gleicht sie mit `service('routes')->getRoutes()` aller Verben ab und wird sonst rot) × anonym/mitglied/getraenkewart/admin/tablet;
   ein Test je Fall (Session-CSRF/Cookie leben nicht über mehrere Requests), `$refresh = false` + `uniqid`-Benutzernamen für Tempo (~20 s statt ~3 min).
   `php spark routes` zeigt für `verschieben/(hoch|runter)` fälschlich `<unknown>`-Filter (Anzeigefehler, die Filter greifen; der Test belegt es).
 

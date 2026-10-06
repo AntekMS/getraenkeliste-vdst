@@ -12,7 +12,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\DbTestCase;
 
 /**
- * Zugriffs-Sweep: jede Route aus `php spark routes` (feste Liste unten, nicht existierende Beispiel-ID 999999) mit vier Akteuren.
+ * Zugriffs-Sweep: jede Route aus `php spark routes` (feste Liste unten, nicht existierende Beispiel-ID 999999) mit fünf Akteuren
+ * (zusätzlich `getraenkewart`: Mitglied mit Rolle getraenkewart; Klassen wart_getraenke = durchgelassen, wart_kiosk = 403, für Admin 404).
  *
  * Routenklassen und erwartetes Ergebnis je Akteur:
  *
@@ -79,6 +80,7 @@ final class ZugriffsschutzTest extends DbTestCase
         ['POST', 'admin/artikel/999999/verschieben/runter', 'admin'], ['POST', 'admin/artikel/999999/archivieren', 'admin'],
         ['GET', 'admin/einstellungen', 'admin'], ['POST', 'admin/einstellungen', 'admin'],
         ['GET', 'admin/protokoll', 'admin'],
+        ['GET', 'wart/getraenke/bestand', 'wart_getraenke'], ['GET', 'wart/kiosk/bestand', 'wart_kiosk'],
         ['GET', '/', 'umleitung'],
     ];
 
@@ -90,7 +92,7 @@ final class ZugriffsschutzTest extends DbTestCase
         $faelle = [];
 
         foreach (self::ROUTEN as [$methode, $pfad, $klasse]) {
-            foreach (['anonym', 'mitglied', 'admin', 'tablet'] as $akteur) {
+            foreach (['anonym', 'mitglied', 'getraenkewart', 'admin', 'tablet'] as $akteur) {
                 $faelle["{$methode} {$pfad} als {$akteur}"] = [$methode, $pfad, $klasse, $akteur];
             }
         }
@@ -104,11 +106,11 @@ final class ZugriffsschutzTest extends DbTestCase
         $this->uhrStellen(self::JETZT);
         $sitzung = $this->csrf();
 
-        if ($akteur === 'mitglied' || $akteur === 'admin') {
+        if (in_array($akteur, ['mitglied', 'getraenkewart', 'admin'], true)) {
             $person = $this->personAnlegen(['benutzername' => uniqid('z', true)]);
 
-            if ($akteur === 'admin') {
-                $this->rolleGeben($person, 'admin');
+            if ($akteur !== 'mitglied') {
+                $this->rolleGeben($person, $akteur);
             }
 
             $sitzung = [...$sitzung, ...$this->angemeldeteSitzung($person)];
@@ -136,6 +138,13 @@ final class ZugriffsschutzTest extends DbTestCase
         if ($erwartet === 'verboten') {
             $this->assertNotNull($antwort);
             $antwort->assertStatus(403);
+
+            return;
+        }
+
+        // Filter lässt durch, der Controller kennt den (inaktiven) Bereich nicht: 404 (als Exception oder Status).
+        if ($erwartet === 'nicht_gefunden') {
+            $this->assertTrue($antwort === null || $antwort->getStatusCode() === 404, "{$methode} {$pfad} als {$akteur}: erwartet 404");
 
             return;
         }
@@ -225,10 +234,23 @@ final class ZugriffsschutzTest extends DbTestCase
                 default  => 'durchgelassen',
             },
             'admin' => match ($akteur) {
+                'anonym'                    => 'redirect:login',
+                'mitglied', 'getraenkewart' => 'verboten',
+                'tablet'                    => 'redirect:tablet',
+                default                     => 'durchgelassen',
+            },
+            // Recht je Bereich in der URL: der Getränkewart darf nur getraenke, der Kiosk-Bereich ist bis Stufe 3 inaktiv (404 für alle, die der Filter durchlässt).
+            'wart_getraenke' => match ($akteur) {
                 'anonym'   => 'redirect:login',
                 'mitglied' => 'verboten',
                 'tablet'   => 'redirect:tablet',
                 default    => 'durchgelassen',
+            },
+            'wart_kiosk' => match ($akteur) {
+                'anonym'                    => 'redirect:login',
+                'mitglied', 'getraenkewart' => 'verboten',
+                'tablet'                    => 'redirect:tablet',
+                default                     => 'nicht_gefunden',
             },
             'umleitung' => 'redirect:buchen',
         };

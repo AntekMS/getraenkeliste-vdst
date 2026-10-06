@@ -3,6 +3,7 @@
 namespace Config;
 
 use App\Libraries\Anmeldung;
+use App\Libraries\BestandService;
 use App\Libraries\BuchungService;
 use App\Libraries\Einstellungen;
 use App\Libraries\Geraete;
@@ -69,6 +70,15 @@ class Services extends BaseService
         }
 
         return new Protokollierer();
+    }
+
+    public static function bestand(bool $getShared = true): BestandService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('bestand');
+        }
+
+        return new BestandService();
     }
 
     public static function zeitraeume(bool $getShared = true): Zeitraeume
