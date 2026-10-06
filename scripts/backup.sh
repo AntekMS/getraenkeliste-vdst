@@ -57,29 +57,43 @@ docker ps --format '{{.Names}}' | grep -x "$DB_CONTAINER" >/dev/null \
 
 mkdir -p "$BACKUP_DIR/daily" "$BACKUP_DIR/monthly"
 
+# Alles wird zuerst als *.tmp geschrieben und geprüft; erst wenn ALLE Teile in Ordnung
+# sind, ersetzt mv die Dateien des Tages. Ein fehlgeschlagener Lauf hinterlässt so keine
+# halben Dateien und zerstört kein früheres, gutes Backup desselben Tages.
+DB_DUMP="$BACKUP_DIR/daily/db_$HEUTE.sql.gz"
+EXPORTE_ARCHIV="$BACKUP_DIR/daily/exporte_$HEUTE.tar.gz"
+KONFIG_ARCHIV="$BACKUP_DIR/daily/konfig_$HEUTE.tar.gz"
+
+aufraeumen() {
+    rm -f "$BACKUP_DIR"/daily/*.tmp "$BACKUP_DIR"/monthly/*.tmp
+}
+trap aufraeumen EXIT
+
+# Kopie über *.tmp + mv: das Ziel ist nie halb geschrieben.
+kopiere() {
+    cp "$1" "$2.tmp"
+    mv -f "$2.tmp" "$2"
+}
+
 # ---- 1. MySQL-Dump ----------------------------------------------------------
 # --no-tablespaces ist Absicht: ohne das bräuchte getraenkeuser auf MySQL 8 das
 # PROCESS-Privileg. MYSQL_PWD vermeidet das Passwort in der Prozessliste.
-DB_DUMP="$BACKUP_DIR/daily/db_$HEUTE.sql.gz"
-
 docker exec -e MYSQL_PWD="$DB_PASS" "$DB_CONTAINER" \
     mysqldump --single-transaction --no-tablespaces --routines --triggers \
-    -u "$DB_USER" "$DB_NAME" | gzip > "$DB_DUMP" \
-    || { rm -f "$DB_DUMP"; fehler "mysqldump für '$DB_NAME' fehlgeschlagen"; }
+    -u "$DB_USER" "$DB_NAME" | gzip > "$DB_DUMP.tmp" \
+    || fehler "mysqldump für '$DB_NAME' fehlgeschlagen"
 
-[ -s "$DB_DUMP" ] || fehler "DB-Dump $DB_DUMP ist leer"
-gzip -t "$DB_DUMP" || fehler "DB-Dump $DB_DUMP ist kein gültiges gzip"
-gzip -dc "$DB_DUMP" | tail -1 | grep -q 'Dump completed' \
-    || fehler "DB-Dump $DB_DUMP ist unvollständig (kein 'Dump completed')"
+[ -s "$DB_DUMP.tmp" ] || fehler "DB-Dump ist leer"
+gzip -t "$DB_DUMP.tmp" || fehler "DB-Dump ist kein gültiges gzip"
+gzip -dc "$DB_DUMP.tmp" | tail -1 | grep -q 'Dump completed' \
+    || fehler "DB-Dump ist unvollständig (kein 'Dump completed')"
 
 # ---- 2. Gespeicherte Exporte (darf leer sein) -------------------------------
-EXPORTE_ARCHIV="$BACKUP_DIR/daily/exporte_$HEUTE.tar.gz"
-
-tar -czf "$EXPORTE_ARCHIV" -C "$APP_DIR/writable" exporte
-gzip -t "$EXPORTE_ARCHIV" || fehler "Export-Archiv $EXPORTE_ARCHIV ist kein gültiges gzip"
+tar -czf "$EXPORTE_ARCHIV.tmp" -C "$APP_DIR/writable" exporte \
+    || fehler "Export-Archiv konnte nicht erstellt werden"
+gzip -t "$EXPORTE_ARCHIV.tmp" || fehler "Export-Archiv ist kein gültiges gzip"
 
 # ---- 3. Konfiguration -------------------------------------------------------
-KONFIG_ARCHIV="$BACKUP_DIR/daily/konfig_$HEUTE.tar.gz"
 KONFIG_DATEIEN=()
 for datei in .env docker-compose.override.yml; do
     if [ -f "$APP_DIR/$datei" ]; then
@@ -88,24 +102,31 @@ for datei in .env docker-compose.override.yml; do
 done
 
 if [ "${#KONFIG_DATEIEN[@]}" -gt 0 ]; then
-    tar -czf "$KONFIG_ARCHIV" -C "$APP_DIR" "${KONFIG_DATEIEN[@]}"
-    gzip -t "$KONFIG_ARCHIV" || fehler "Konfig-Archiv $KONFIG_ARCHIV ist kein gültiges gzip"
+    tar -czf "$KONFIG_ARCHIV.tmp" -C "$APP_DIR" "${KONFIG_DATEIEN[@]}" \
+        || fehler "Konfig-Archiv konnte nicht erstellt werden"
+    gzip -t "$KONFIG_ARCHIV.tmp" || fehler "Konfig-Archiv ist kein gültiges gzip"
+fi
+
+# ---- Alles geprüft: Dateien des Tages ersetzen ------------------------------
+mv -f "$DB_DUMP.tmp" "$DB_DUMP"
+mv -f "$EXPORTE_ARCHIV.tmp" "$EXPORTE_ARCHIV"
+if [ "${#KONFIG_DATEIEN[@]}" -gt 0 ]; then
+    mv -f "$KONFIG_ARCHIV.tmp" "$KONFIG_ARCHIV"
     KONFIG_INFO="$(du -h "$KONFIG_ARCHIV" | cut -f1) Konfig"
 else
     # Nur ohne Mount-Prüfung (lokaler Test) erreichbar, siehe Vorprüfungen.
-    rm -f "$KONFIG_ARCHIV"
     KONFIG_INFO="keine Konfig (.env fehlt)"
     echo "WARNUNG: keine .env in $APP_DIR – Konfig-Archiv übersprungen" >&2
 fi
 
 # ---- 4. Monats-Promotion (selbstheilend: greift beim ersten Lauf im Monat) --
 if [ ! -f "$BACKUP_DIR/monthly/db_$MONAT.sql.gz" ]; then
-    cp "$EXPORTE_ARCHIV" "$BACKUP_DIR/monthly/exporte_$MONAT.tar.gz"
-    if [ -f "$KONFIG_ARCHIV" ]; then
-        cp "$KONFIG_ARCHIV" "$BACKUP_DIR/monthly/konfig_$MONAT.tar.gz"
+    kopiere "$EXPORTE_ARCHIV" "$BACKUP_DIR/monthly/exporte_$MONAT.tar.gz"
+    if [ "${#KONFIG_DATEIEN[@]}" -gt 0 ]; then
+        kopiere "$KONFIG_ARCHIV" "$BACKUP_DIR/monthly/konfig_$MONAT.tar.gz"
     fi
     # DB-Dump zuletzt: seine Existenz markiert die Promotion als erledigt.
-    cp "$DB_DUMP" "$BACKUP_DIR/monthly/db_$MONAT.sql.gz"
+    kopiere "$DB_DUMP" "$BACKUP_DIR/monthly/db_$MONAT.sql.gz"
     echo "Monats-Backup $MONAT angelegt"
 fi
 

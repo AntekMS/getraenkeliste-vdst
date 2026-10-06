@@ -4,6 +4,8 @@
 Description=Getränkeliste VDSt: Backup (DB-Dump, Exporte, Konfiguration)
 After=docker.service
 Requires=docker.service
+# Stick muss gemountet sein (backup.sh prüft das zusätzlich selbst).
+RequiresMountsFor=/mnt/kasse-backup
 
 [Service]
 Type=oneshot

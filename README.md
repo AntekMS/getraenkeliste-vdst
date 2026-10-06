@@ -61,7 +61,8 @@ Danach `docker compose up -d` (ein bereits laufender Container wird mit
 
 Auf dem Raspberry Pi Schritt für Schritt: `docs/DEPLOY-PI.md`.
 
-1. Repo nach `/opt/getraenkeliste` klonen, `.env` anlegen (siehe oben), `docker compose up -d --build`
+1. Repo nach `/opt/getraenkeliste` klonen, `.env` anlegen (siehe oben; Rechte `chown "$USER":33`,
+   `chmod 640` – Apache im Container muss sie lesen), `docker compose up -d --build --force-recreate`
    (App auf Port 8090), `docker exec getraenkeliste-web composer install --no-dev --optimize-autoloader`.
 2. `docker exec -u www-data getraenkeliste-web php spark migrate` (legt Bereiche, Couleur/Bund und Einstellungen an),
    dann `docker exec -it -u www-data getraenkeliste-web php spark admin:anlegen` (erster Admin; die PIN wird beim ersten

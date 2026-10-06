@@ -125,9 +125,12 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   explizit, weil ein eigener ENTRYPOINT das geerbte CMD zurücksetzt): `chown -R www-data` + `chmod -R u+rwX,g+rwX` auf `writable/`
   (Linux-Host/Pi: Bind-Mount behält Host-UID), Fehler nur als Hinweis (Docker Desktop), dann `exec docker-php-entrypoint "$@"`.
   Image-Änderung erst nach `docker compose up -d --build --force-recreate getraenkeliste-web` aktiv.
+  `.dockerignore` hält `.env`, Override, `.git`, `vendor/`, `writable/`, `backups/` aus dem Build-Kontext (keine Geheimnisse im Image;
+  `vendor/` entsteht im Build per `composer install --no-dev`). `.env` auf dem Pi: `chown <user>:33`, `chmod 640` (Apache liest sie über den Bind-Mount).
 - Backup/Betrieb (Task 18, aus Stufe 2 vorgezogen): `scripts/backup.sh` (Host, bash; DB-Dump per `docker exec -e MYSQL_PWD … mysqldump`,
   `exporte_*.tar.gz` aus `writable/exporte/`, `konfig_*.tar.gz` mit `.env`/Override, `umask 077`, Monats-Promotion, Retention;
-  Mount-Prüfung `BACKUP_MOUNT` (leer = aus), dann ist `DB_PASS` Pflicht), `scripts/restore.sh` (Rückfrage „ja“/`--ja`, Sicherheits-Dump
+  Mount-Prüfung `BACKUP_MOUNT` (leer = aus), dann ist `DB_PASS` Pflicht; alles erst als `*.tmp`, geprüft, dann `mv`, `trap` räumt `*.tmp` weg),
+  `scripts/restore.sh` (prüft „Dump completed“ der Quelle, Rückfrage „ja“/`--ja`, ohne TTY nur mit `--ja`, stoppt `WEB_CONTAINER` und startet ihn per `trap` wieder, Sicherheits-Dump
   nach `BACKUP_DIR/vor-restore/`, Export-Archiv nur mit `exporte/`-Pfaden, Konfig nie automatisch), `deploy/systemd/` (Timer 02:30,
   `EnvironmentFile=/etc/getraenkeliste-backup.env`, Vorlage `deploy/getraenkeliste-backup.env.example`). Doku: `docs/BACKUP.md`,
   `docs/DEPLOY-PI.md` (Pi-Installation, Update, Tablet, Fehlersuche). Skripte mit LF und Git-Modus 755 committen.

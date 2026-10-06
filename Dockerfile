@@ -36,7 +36,9 @@ RUN if [ -f /var/www/html/composer.json ]; then \
         cd /var/www/html && composer install --no-dev --optimize-autoloader; \
     fi
 
-RUN chown -R www-data:www-data /var/www/html/ \
+# writable/ ist per .dockerignore ausgeschlossen (kommt zur Laufzeit per Bind-Mount)
+RUN mkdir -p /var/www/html/writable \
+    && chown -R www-data:www-data /var/www/html/ \
     && chmod -R 755 /var/www/html/ \
     && chmod -R 775 /var/www/html/writable/
 

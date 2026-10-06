@@ -5,11 +5,12 @@
 #   ./scripts/restore.sh <db_dump.sql.gz> [exporte.tar.gz] [--ja]
 #
 # Ablauf:
-#   1. Prüfungen (Dateien vorhanden, gültiges gzip, Archiv enthält nur exporte/)
-#   2. Sicherheitsabfrage (Eingabe "ja"; --ja überspringt sie)
-#   3. Sicherheits-Dump der AKTUELLEN Datenbank (und ggf. Exporte) nach BACKUP_DIR/vor-restore/
-#   4. DB-Dump einspielen
-#   5. Optional: writable/exporte/ wiederherstellen
+#   1. Prüfungen (Dateien vorhanden, gültiges gzip, Dump vollständig, Archiv enthält nur exporte/)
+#   2. Sicherheitsabfrage (Eingabe "ja"; --ja überspringt sie; ohne Terminal ist --ja Pflicht)
+#   3. Web-Container stoppen (WEB_CONTAINER, leer = nicht stoppen); Neustart am Ende, auch bei Fehlern
+#   4. Sicherheits-Dump der AKTUELLEN Datenbank (und ggf. Exporte) nach BACKUP_DIR/vor-restore/
+#   5. DB-Dump einspielen
+#   6. Optional: writable/exporte/ wiederherstellen
 #
 # Die Konfiguration (konfig_*.tar.gz: .env, Override) wird bewusst NICHT
 # automatisch zurückgespielt. Ziel-DB über DB_NAME umlenkbar. Doku: docs/BACKUP.md
@@ -25,6 +26,8 @@ BACKUP_MOUNT="${BACKUP_MOUNT-/mnt/kasse-backup}"
 DB_CONTAINER="${DB_CONTAINER:-getraenkeliste-db}"
 DB_NAME="${DB_NAME:-getraenkeliste}"
 DB_USER="${DB_USER:-getraenkeuser}"
+# Wird während des Einspielens gestoppt (keine Buchungen in eine halbe DB); leer = nicht stoppen.
+WEB_CONTAINER="${WEB_CONTAINER-getraenkeliste-web}"
 
 # Sicherheits-Dumps enthalten personenbezogene Daten.
 umask 077
@@ -52,6 +55,8 @@ done
 [ -n "$DB_DUMP" ] || fehler "Kein DB-Dump angegeben. $AUFRUF"
 [ -f "$DB_DUMP" ] || fehler "DB-Dump $DB_DUMP nicht gefunden"
 gzip -t "$DB_DUMP" || fehler "DB-Dump $DB_DUMP ist kein gültiges gzip"
+gzip -dc "$DB_DUMP" | tail -1 | grep -q 'Dump completed' \
+    || fehler "DB-Dump $DB_DUMP ist unvollständig (kein 'Dump completed')"
 if [ -n "$EXPORTE_ARCHIV" ]; then
     [ -f "$EXPORTE_ARCHIV" ] || fehler "Export-Archiv $EXPORTE_ARCHIV nicht gefunden"
     gzip -t "$EXPORTE_ARCHIV" || fehler "Export-Archiv $EXPORTE_ARCHIV ist kein gültiges gzip"
@@ -77,6 +82,7 @@ docker ps --format '{{.Names}}' | grep -x "$DB_CONTAINER" >/dev/null \
 
 # ---- 2. Sicherheitsabfrage --------------------------------------------------
 if [ "$JA" -ne 1 ]; then
+    [ -t 0 ] || fehler "Keine Rückfrage möglich (kein Terminal) – zum Bestätigen --ja angeben"
     echo "Quelle: $DB_DUMP"
     if [ -n "$EXPORTE_ARCHIV" ]; then
         echo "        writable/exporte/ wird durch $EXPORTE_ARCHIV ersetzt."
@@ -85,7 +91,26 @@ if [ "$JA" -ne 1 ]; then
     [ "$ANTWORT" = "ja" ] || { echo "Abgebrochen."; exit 0; }
 fi
 
-# ---- 3. Sicherheits-Dump des aktuellen Stands -------------------------------
+# ---- 3. Web-Container stoppen (wird bei Ende/Fehler wieder gestartet) -------
+WEB_GESTOPPT=0
+web_wieder_starten() {
+    if [ "$WEB_GESTOPPT" -eq 1 ]; then
+        if docker start "$WEB_CONTAINER" >/dev/null; then
+            echo "Web-Container $WEB_CONTAINER wieder gestartet."
+        else
+            echo "WARNUNG: $WEB_CONTAINER ließ sich nicht starten (docker compose up -d)" >&2
+        fi
+    fi
+}
+trap web_wieder_starten EXIT
+
+if [ -n "$WEB_CONTAINER" ] && docker ps --format '{{.Names}}' | grep -x "$WEB_CONTAINER" >/dev/null; then
+    docker stop "$WEB_CONTAINER" >/dev/null || fehler "Web-Container $WEB_CONTAINER ließ sich nicht stoppen"
+    WEB_GESTOPPT=1
+    echo "Web-Container $WEB_CONTAINER gestoppt."
+fi
+
+# ---- 4. Sicherheits-Dump des aktuellen Stands -------------------------------
 ZEITSTEMPEL="$(date +%Y-%m-%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR/vor-restore"
 SICHERHEITS_DUMP="$BACKUP_DIR/vor-restore/db_${DB_NAME}_$ZEITSTEMPEL.sql.gz"
@@ -93,9 +118,9 @@ SICHERHEITS_DUMP="$BACKUP_DIR/vor-restore/db_${DB_NAME}_$ZEITSTEMPEL.sql.gz"
 docker exec -e MYSQL_PWD="$DB_PASS" "$DB_CONTAINER" \
     mysqldump --single-transaction --no-tablespaces --routines --triggers \
     -u "$DB_USER" "$DB_NAME" | gzip > "$SICHERHEITS_DUMP" \
-    || fehler "Sicherheits-Dump fehlgeschlagen – Abbruch VOR der Wiederherstellung"
+    || { rm -f "$SICHERHEITS_DUMP"; fehler "Sicherheits-Dump fehlgeschlagen – Abbruch VOR der Wiederherstellung"; }
 gzip -dc "$SICHERHEITS_DUMP" | tail -1 | grep -q 'Dump completed' \
-    || fehler "Sicherheits-Dump unvollständig – Abbruch VOR der Wiederherstellung"
+    || { rm -f "$SICHERHEITS_DUMP"; fehler "Sicherheits-Dump unvollständig – Abbruch VOR der Wiederherstellung"; }
 echo "Sicherheits-Dump: $SICHERHEITS_DUMP"
 
 if [ -n "$EXPORTE_ARCHIV" ]; then
@@ -106,13 +131,13 @@ if [ -n "$EXPORTE_ARCHIV" ]; then
     fi
 fi
 
-# ---- 4. DB einspielen -------------------------------------------------------
+# ---- 5. DB einspielen -------------------------------------------------------
 gzip -dc "$DB_DUMP" | docker exec -i -e MYSQL_PWD="$DB_PASS" "$DB_CONTAINER" \
     mysql -u "$DB_USER" "$DB_NAME" \
     || fehler "Einspielen fehlgeschlagen – Stand vorher: $SICHERHEITS_DUMP"
 echo "Datenbank $DB_NAME wiederhergestellt aus $DB_DUMP"
 
-# ---- 5. Exporte einspielen --------------------------------------------------
+# ---- 6. Exporte einspielen --------------------------------------------------
 if [ -n "$EXPORTE_ARCHIV" ]; then
     mkdir -p "$APP_DIR/writable/exporte"
     find "$APP_DIR/writable/exporte" -mindepth 1 -delete
@@ -125,5 +150,6 @@ echo "Fertig. Hinweise:"
 echo "  - Die Konfiguration (.env, docker-compose.override.yml) wird NICHT automatisch"
 echo "    zurückgespielt. Bei Bedarf von Hand aus konfig_<datum>.tar.gz holen:"
 echo "    tar -xzf konfig_<datum>.tar.gz -C <verzeichnis>   (enthält Geheimnisse!)"
+echo "    Danach .env: sudo chown \"\$USER\":33 .env && sudo chmod 640 .env"
 echo "  - Falls der Dump älter als der Code ist: docker exec -u www-data getraenkeliste-web php spark migrate"
-echo "  - Danach: docker compose restart getraenkeliste-web (setzt die Rechte von writable/)"
+echo "  - Der Web-Container setzt beim Start die Rechte von writable/ (auch der eingespielten Exporte)."

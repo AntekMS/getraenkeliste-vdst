@@ -1,0 +1,9 @@
+# Nicht ins Image: Geheimnisse, lokale Daten, Abhängigkeiten (composer install im Build).
+# Zur Laufzeit kommt der Code ohnehin per Bind-Mount (docker-compose.yml).
+.env
+docker-compose.override.yml
+.git
+.superpowers
+backups/
+writable/
+vendor/

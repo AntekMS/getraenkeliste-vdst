@@ -58,8 +58,14 @@ app.baseURL = 'http://getraenke-pi:8090/'
 ```
 
 ```bash
-sudo chmod 600 /opt/getraenkeliste/.env
+sudo chown "$USER":33 /opt/getraenkeliste/.env   # 33 = www-data im Container
+sudo chmod 640 /opt/getraenkeliste/.env
 ```
+
+**Nicht `chmod 600` als root:** Der Projektordner ist in den Container gemountet; Apache (`www-data`,
+GID 33) muss die `.env` lesen können, sonst bricht jede Seite mit „The .env file is not readable“ ab.
+Docker Compose (als Benutzer in der Gruppe `docker`) liest sie als Eigentümer. Ins Image gelangt die
+`.env` nicht (`.dockerignore`).
 
 Dieses Format ist geprüft: Docker Compose liest `CI_ENVIRONMENT`, `DB_PASS` und
 `MYSQL_ROOT_PASSWORD` korrekt und ignoriert die CI-Zeilen mit Punkten (`app.baseURL`,
@@ -86,7 +92,7 @@ services:
 
 ```bash
 cd /opt/getraenkeliste
-docker compose up -d --build                      # erster Build auf dem Pi dauert einige Minuten
+docker compose up -d --build --force-recreate     # erster Build auf dem Pi dauert einige Minuten
 docker compose ps                                 # getraenkeliste-web und -db: running
 docker exec getraenkeliste-web composer install --no-dev --optimize-autoloader
 ```
@@ -144,7 +150,7 @@ gemountet, DB-Container aus, Dump unvollständig), steht `FEHLER: …` im Journa
 cd /opt/getraenkeliste
 sudo systemctl start getraenkeliste-backup.service      # 1. Backup vorher
 sudo git pull                                            # 2. neuen Code holen
-docker compose up -d --build                             # 3. Image neu bauen, Container neu starten
+docker compose up -d --build --force-recreate            # 3. Image neu bauen, Container neu erstellen
 docker exec getraenkeliste-web composer install --no-dev --optimize-autoloader   # 4. Abhängigkeiten
 docker exec -u www-data getraenkeliste-web php spark migrate                     # 5. Migrationen
 ```
@@ -152,7 +158,9 @@ docker exec -u www-data getraenkeliste-web php spark migrate                    
 6. Kurztest: `http://<pi>:8090/login` lädt, anmelden, Buchungsseite und Tablet prüfen.
 
 `composer install` ist nach jedem Update nötig: `vendor/` liegt in einem Docker-Volume, das ein
-neues Image nicht automatisch aktualisiert.
+neues Image nicht automatisch aktualisiert. `--force-recreate` ist Absicht: ohne erstellt Compose den
+Web-Container bei einem geänderten Image nicht immer neu (lokal beobachtet), ein geänderter
+Entrypoint/Dockerfile würde dann nicht wirken.
 
 ## Wiederherstellen
 
@@ -165,11 +173,11 @@ sudo bash -c 'set -a; . /etc/getraenkeliste-backup.env; set +a; \
   ./scripts/restore.sh /mnt/kasse-backup/getraenkeliste/daily/db_JJJJ-MM-TT.sql.gz \
                        /mnt/kasse-backup/getraenkeliste/daily/exporte_JJJJ-MM-TT.tar.gz'
 docker exec -u www-data getraenkeliste-web php spark migrate
-docker compose restart getraenkeliste-web
 ```
 
-Das Skript fragt nach („ja“) und sichert den aktuellen Stand vorher nach
-`/mnt/kasse-backup/getraenkeliste/vor-restore/`.
+Das Skript fragt nach („ja“; ohne Terminal nur mit `--ja`), stoppt `getraenkeliste-web` während des
+Einspielens (Neustart danach automatisch, auch bei Fehlern) und sichert den aktuellen Stand vorher
+nach `/mnt/kasse-backup/getraenkeliste/vor-restore/`.
 
 ## Tablet einrichten
 
@@ -186,6 +194,7 @@ Das Skript fragt nach („ja“) und sichert den aktuellen Stand vorher nach
 | Problem | Prüfen |
 |---|---|
 | Seite lädt nicht | `docker compose ps`, `docker logs getraenkeliste-web` (Apache- und PHP-Fehler) |
+| „The .env file is not readable“ | `ls -l /opt/getraenkeliste/.env` → muss `<benutzer> 33` mit `-rw-r-----` sein: `sudo chown "$USER":33 .env && sudo chmod 640 .env` |
 | „Whoops“/500-Fehler | `writable/logs/log-JJJJ-MM-TT.log` (`sudo tail -50 /opt/getraenkeliste/writable/logs/log-*.log`) |
 | Anmelden klappt nicht, man landet immer wieder auf dem Login | `cookie.secure = true` ohne HTTPS? `app.baseURL` passt nicht zur aufgerufenen Adresse? |
 | Fehler „Session“/„Cache“ nicht beschreibbar | `docker compose restart getraenkeliste-web` (Entrypoint setzt die Rechte von `writable/` neu) |

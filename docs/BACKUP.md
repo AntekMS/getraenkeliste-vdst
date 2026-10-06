@@ -20,7 +20,10 @@ Mount-Optionen). Stick und Archive nicht weitergeben.
 `--no-tablespaces` ist Absicht: ohne die Option bräuchte `getraenkeuser` auf MySQL 8 das
 PROCESS-Privileg. Jeder Dump wird geprüft: nicht leer, gültiges gzip, letzte Zeile
 „Dump completed“. Bei jedem Fehler bricht das Skript mit `FEHLER: …` auf stderr und
-Exit-Code ≠ 0 ab (im Journal sichtbar, Unit im Zustand `failed`).
+Exit-Code ≠ 0 ab (im Journal sichtbar, Unit im Zustand `failed`). Alle Dateien entstehen zuerst
+als `*.tmp`; erst wenn alle Teile geprüft sind, ersetzt `mv` die Dateien des Tages. Ein
+fehlgeschlagener Lauf hinterlässt also keine halben Dateien und überschreibt kein gutes Backup
+desselben Tages (`*.tmp`-Reste räumt ein `trap` weg).
 
 ## Ablage und Aufbewahrung
 
@@ -44,7 +47,7 @@ Exit-Code ≠ 0 ab (im Journal sichtbar, Unit im Zustand `failed`).
 ## Konfiguration
 
 Per Umgebungsvariablen; auf dem Pi in `/etc/getraenkeliste-backup.env`
-(Vorlage `deploy/getraenkeliste-backup.env.example`, `chmod 600`). Eine eigene Datei statt der
+(Vorlage `deploy/getraenkeliste-backup.env.example`, `install -m 600`). Eine eigene Datei statt der
 App-`.env`, weil diese CI-Schlüssel mit Punkten enthält (`app.baseURL …`).
 
 | Variable | Default | Hinweis |
@@ -58,6 +61,7 @@ App-`.env`, weil diese CI-Schlüssel mit Punkten enthält (`app.baseURL …`).
 | `RETENTION_DAILY` | `30` | Tage |
 | `RETENTION_MONTHLY_TAGE` | `366` | Tage |
 | `APP_DIR` | Repo des Skripts | Projektverzeichnis (`.env`, `writable/exporte/`); nur für Tests umlenken |
+| `WEB_CONTAINER` | `getraenkeliste-web` | nur `restore.sh`: wird während des Einspielens gestoppt; leer = laufen lassen |
 
 ## Manuell ausführen
 
@@ -79,12 +83,17 @@ BACKUP_MOUNT= BACKUP_DIR=./backups ./scripts/backup.sh
 ./scripts/restore.sh <db_dump.sql.gz> [exporte.tar.gz] [--ja]
 ```
 
-1. prüft die Dateien (vorhanden, gültiges gzip, Export-Archiv enthält nur `exporte/`),
-2. fragt „Datenbank <name> wird überschrieben. Fortfahren? (ja/nein)“ (`--ja` überspringt),
-3. legt einen **Sicherheits-Dump** des aktuellen Stands nach `BACKUP_DIR/vor-restore/` (bei
+1. prüft die Dateien (vorhanden, gültiges gzip, Dump endet mit „Dump completed“, Export-Archiv
+   enthält nur `exporte/`),
+2. fragt „Datenbank <name> wird überschrieben. Fortfahren? (ja/nein)“ (`--ja` überspringt; ohne
+   Terminal, z. B. per Skript/Pipe, bricht es ohne `--ja` mit Fehlermeldung ab),
+3. stoppt den Web-Container `getraenkeliste-web` (keine Buchungen während des Einspielens;
+   `WEB_CONTAINER=` lässt ihn laufen) und startet ihn am Ende wieder — per `trap` auch bei Fehlern.
+   Beim Start setzt der Entrypoint die Rechte von `writable/` (auch der eingespielten Exporte),
+4. legt einen **Sicherheits-Dump** des aktuellen Stands nach `BACKUP_DIR/vor-restore/` (bei
    Export-Archiv auch die aktuellen Exporte),
-4. spielt den Dump per `docker exec -i getraenkeliste-db mysql` ein,
-5. ersetzt optional den Inhalt von `writable/exporte/`.
+5. spielt den Dump per `docker exec -i getraenkeliste-db mysql` ein,
+6. ersetzt optional den Inhalt von `writable/exporte/`.
 
 Die **Konfiguration wird bewusst nicht** automatisch zurückgespielt (Geheimnisse, und eine neue
 Installation hat oft andere Passwörter/Hostnamen) — bei Bedarf von Hand auspacken.
@@ -99,9 +108,11 @@ Mit `DB_NAME=<andere_db>` lässt sich in eine andere Datenbank einspielen (Probe
    sudo mkdir -m 700 /root/konfig-alt
    sudo tar -xzf /mnt/kasse-backup/getraenkeliste/daily/konfig_2026-10-06.tar.gz -C /root/konfig-alt
    sudo cp /root/konfig-alt/.env /opt/getraenkeliste/.env      # ggf. auch docker-compose.override.yml
+   sudo chown "$USER":33 /opt/getraenkeliste/.env && sudo chmod 640 /opt/getraenkeliste/.env
    sudo rm -rf /root/konfig-alt
    ```
-   Danach weiter nach `docs/DEPLOY-PI.md` bis einschließlich `docker compose up -d --build` und
+   (`640` mit Gruppe 33 ist Pflicht: Apache im Container muss die `.env` lesen.)
+   Danach weiter nach `docs/DEPLOY-PI.md` bis einschließlich `docker compose up -d --build --force-recreate` und
    `composer install` (noch **kein** `migrate`/`admin:anlegen`) sowie Backup-Konfiguration
    `/etc/getraenkeliste-backup.env`.
 3. Daten einspielen (Passwort aus der Backup-Konfiguration laden):
@@ -111,10 +122,9 @@ Mit `DB_NAME=<andere_db>` lässt sich in eine andere Datenbank einspielen (Probe
      ./scripts/restore.sh /mnt/kasse-backup/getraenkeliste/daily/db_2026-10-06.sql.gz \
                           /mnt/kasse-backup/getraenkeliste/daily/exporte_2026-10-06.tar.gz'
    ```
-4. Migrationen nachziehen (falls der Dump älter als der Code ist) und Rechte setzen:
+4. Migrationen nachziehen (falls der Dump älter als der Code ist):
    ```bash
    docker exec -u www-data getraenkeliste-web php spark migrate
-   docker compose restart getraenkeliste-web
    ```
 5. Kurztest: `http://<pi>:8090/login` → anmelden → „Meine Buchungen“.
 
@@ -123,12 +133,19 @@ Ist der Stick nicht gemountet (Backups z. B. auf einen Laptop kopiert):
 
 ### Probe-Restore ohne Produktivdaten anzufassen
 
+Wegwerf-DB anlegen, einspielen (Web-Container läuft weiter: `WEB_CONTAINER=`), prüfen, wieder
+entfernen. Das Passwort kommt aus der Backup-Konfiguration, nicht von der Kommandozeile:
+
 ```bash
+cd /opt/getraenkeliste
 docker exec getraenkeliste-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE getraenkeliste_restoretest; GRANT ALL ON getraenkeliste_restoretest.* TO \"getraenkeuser\"@\"%\";"'
-BACKUP_MOUNT= BACKUP_DIR=/tmp/probe DB_PASS=… DB_NAME=getraenkeliste_restoretest \
-  ./scripts/restore.sh /mnt/kasse-backup/getraenkeliste/daily/db_2026-10-06.sql.gz --ja
-docker exec -e MYSQL_PWD=… getraenkeliste-db mysql -ugetraenkeuser getraenkeliste_restoretest -e "SHOW TABLES; SELECT COUNT(*) FROM buchungen;"
-docker exec getraenkeliste-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE getraenkeliste_restoretest;"'
+sudo bash -c 'set -a; . /etc/getraenkeliste-backup.env; set +a; \
+  BACKUP_MOUNT= BACKUP_DIR=/root/restore-probe WEB_CONTAINER= DB_NAME=getraenkeliste_restoretest \
+  ./scripts/restore.sh /mnt/kasse-backup/getraenkeliste/daily/db_2026-10-06.sql.gz --ja && \
+  docker exec -e MYSQL_PWD="$DB_PASS" getraenkeliste-db mysql -ugetraenkeuser getraenkeliste_restoretest \
+    -e "SHOW TABLES; SELECT COUNT(*) FROM buchungen;"'
+docker exec getraenkeliste-db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE getraenkeliste_restoretest; REVOKE ALL PRIVILEGES ON getraenkeliste_restoretest.* FROM \"getraenkeuser\"@\"%\";"'
+sudo rm -rf /root/restore-probe
 ```
 
 ### Einzelnen Export zurückholen
