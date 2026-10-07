@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Libraries;
 
 use App\Models\AuszaehlungPositionModel;
+use App\Models\PersonModel;
 use CodeIgniter\Database\BaseBuilder;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -118,16 +119,18 @@ class AuszaehlungExport
         ],
     ];
 
+    private const STAMMDATEN_HINWEIS = 'Namen, Gruppe und Kategorie zeigen die Stammdaten beim Erzeugen der Datei; IDs, Mengen und Beträge sind mit dem Abschluss eingefroren.';
+
     private const BLATT_ERKLAERUNGEN = [
         'Uebersicht'   => 'Zusammenfassung für Menschen: Zeitraum, Umsatz, Summen, Schwund, Top-Artikel und Hinweise (nicht für den Import).',
-        'Abrechnung'   => 'Eine Zeile je Konto mit nicht stornierten Buchungen im Zeitraum; Hauptquelle für den Import ins Kassensystem.',
-        'Positionen'   => 'Verbrauch je Konto, Artikel und Einzelpreis ohne stornierte Buchungen.',
-        'Buchungen'    => 'Alle Buchungen des Zeitraums einschließlich stornierter.',
-        'Bestand'      => 'Ergebnis der Auszählung je Artikel.',
+        'Abrechnung'   => 'Eine Zeile je Konto mit nicht stornierten Buchungen im Zeitraum; Hauptquelle für den Import ins Kassensystem; betrag_eur kann durch Korrekturbuchungen 0 oder negativ sein. ' . self::STAMMDATEN_HINWEIS,
+        'Positionen'   => 'Verbrauch je Konto, Artikel und Einzelpreis ohne stornierte Buchungen. ' . self::STAMMDATEN_HINWEIS,
+        'Buchungen'    => 'Alle Buchungen des Zeitraums einschließlich stornierter. ' . self::STAMMDATEN_HINWEIS,
+        'Bestand'      => 'Ergebnis der Auszählung je Artikel. ' . self::STAMMDATEN_HINWEIS,
         'Bewegungen'   => 'Lieferungen, Schwund und Bestandskorrekturen im Zeitraum.',
         'Statistik'    => 'Umsatz je Kategorie, Kalenderwoche und Wochentag sowie Vergleich zum Vorzeitraum, mit Diagramm (nicht für den Import).',
         'Erklaerungen' => 'Erklärt jedes Blatt und jede Spalte der Datenblätter.',
-        'Meta'         => 'Angaben zur Datei: format_version, bereich, auszaehlung_id, zeitraum_von, zeitraum_bis (JJJJ-MM-TT hh:mm), erstellt_am (= Abschluss), erstellt_von, app_version, summe_abrechnung_eur (= Summe Abrechnung.betrag_eur), anzahl_konten (Zeilen in Abrechnung), anzahl_buchungen (Zeilen in Buchungen, inkl. stornierter).',
+        'Meta'         => 'Angaben zur Datei: format_version, bereich, auszaehlung_id, zeitraum_von, zeitraum_bis und erstellt_am (= Abschluss) als Excel-Datum JJJJ-MM-TT hh:mm, erstellt_von, app_version, summe_abrechnung_eur (= Summe Abrechnung.betrag_eur), anzahl_konten (Zeilen in Abrechnung), anzahl_buchungen (Zeilen in Buchungen, inkl. stornierter).',
     ];
 
     private string $basis;
@@ -154,7 +157,7 @@ class AuszaehlungExport
             ->where('au.id', $auszaehlungId)
             ->get()->getRowArray();
 
-        if ($auszaehlung === null || $auszaehlung['status'] !== 'abgeschlossen') {
+        if ($auszaehlung === null || $auszaehlung['status'] !== 'abgeschlossen' || $auszaehlung['abgeschlossen_at'] === null) {
             throw new RuntimeException("Auszählung {$auszaehlungId} ist nicht abgeschlossen oder existiert nicht.");
         }
 
@@ -305,15 +308,18 @@ class AuszaehlungExport
             ['format_version', self::FORMAT_VERSION],
             ['bereich', $auszaehlung['bereich_schluessel']],
             ['auszaehlung_id', (int) $auszaehlung['id']],
-            ['zeitraum_von', $zeitraum['von']->format('Y-m-d H:i')],
-            ['zeitraum_bis', $zeitraum['bis']->format('Y-m-d H:i')],
-            ['erstellt_am', $abgeschlossen->format('Y-m-d H:i')],
+            ['zeitraum_von', $zeitraum['von']],
+            ['zeitraum_bis', $zeitraum['bis']],
+            ['erstellt_am', $abgeschlossen],
             ['erstellt_von', $auszaehlung['erstellt_von_name']],
             ['app_version', GETRAENKELISTE_VERSION],
             ['summe_abrechnung_eur', self::euro($summeCent)],
             ['anzahl_konten', count($abrechnung)],
             ['anzahl_buchungen', count($buchungen)],
-        ], ['summe_abrechnung_eur' => self::FORMAT_EUR]);
+        ], [
+            'zeitraum_von' => self::FORMAT_ZEIT, 'zeitraum_bis' => self::FORMAT_ZEIT, 'erstellt_am' => self::FORMAT_ZEIT,
+            'summe_abrechnung_eur' => self::FORMAT_EUR,
+        ]);
 
         $mappe->setActiveSheetIndex(0);
 
@@ -405,11 +411,15 @@ class AuszaehlungExport
     {
         $blatt->setTitle('Uebersicht');
 
+        $personen   = new PersonModel();
+        $kontoNamen = [$personen->sammelkontoId('Couleur') => 'Couleur', $personen->sammelkontoId('Bund') => 'Bund'];
         $mitglieder = 0;
         $sammel     = ['Couleur' => 0, 'Bund' => 0];
         foreach ($abrechnung as $z) {
             if ($z['typ'] === 'sammelkonto') {
-                $sammel[(string) $z['anzeigename']] = ($sammel[(string) $z['anzeigename']] ?? 0) + (int) $z['cent'];
+                // Sammelkonten über die ID zuordnen (Anzeigename ist änderbar); unbekannte unter ihrem Namen.
+                $name          = $kontoNamen[(int) $z['id']] ?? (string) $z['anzeigename'];
+                $sammel[$name] = ($sammel[$name] ?? 0) + (int) $z['cent'];
             } else {
                 $mitglieder += (int) $z['cent'];
             }

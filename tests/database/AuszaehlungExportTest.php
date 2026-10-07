@@ -271,9 +271,13 @@ final class AuszaehlungExportTest extends DbTestCase
         $this->assertSame('getraenkeliste-auszaehlung/1', $meta['format_version']);
         $this->assertSame('getraenke', $meta['bereich']);
         $this->assertEquals($this->zweite, $meta['auszaehlung_id']);
-        $this->assertSame('2026-10-03 00:00', $meta['zeitraum_von']);
-        $this->assertSame('2026-10-08 10:00', $meta['zeitraum_bis']);
-        $this->assertSame('2026-10-08 10:05', $meta['erstellt_am']);
+        $zeilen = array_flip(array_keys($meta));
+        foreach (['zeitraum_von' => '2026-10-03 00:00:00', 'zeitraum_bis' => '2026-10-08 10:00:00', 'erstellt_am' => '2026-10-08 10:05:00'] as $schluessel => $zeit) {
+            $zelle = $mappe->getSheetByName('Meta')->getCell('B' . ($zeilen[$schluessel] + 2));
+            $this->assertSame(DataType::TYPE_NUMERIC, $zelle->getDataType(), $schluessel);
+            $this->assertSame('yyyy-mm-dd hh:mm', $zelle->getStyle()->getNumberFormat()->getFormatCode(), $schluessel);
+            $this->assertEqualsWithDelta(Date::PHPToExcel(new DateTimeImmutable($zeit, new DateTimeZone('Europe/Berlin'))), $zelle->getValue(), 0.00001, $schluessel);
+        }
         $this->assertSame('Gustav Wart', $meta['erstellt_von']);
         $this->assertSame(GETRAENKELISTE_VERSION, $meta['app_version']);
         $this->assertSame(800, self::cent($meta['summe_abrechnung_eur']));
@@ -430,6 +434,12 @@ final class AuszaehlungExportTest extends DbTestCase
         foreach (self::BLAETTER as $blatt) {
             $this->assertNotEmpty(array_filter($erklaerungen, static fn (array $e): bool => $e['blatt'] === $blatt && $e['spalte'] === null), "Blatt-Erklärung {$blatt}");
         }
+
+        $blattText = array_column(array_filter($erklaerungen, static fn (array $e): bool => $e['spalte'] === null), 'erklaerung', 'blatt');
+        $this->assertStringContainsString('0 oder negativ', $blattText['Abrechnung']);
+        foreach (['Abrechnung', 'Positionen', 'Buchungen', 'Bestand'] as $blatt) {
+            $this->assertStringContainsString('Stammdaten beim Erzeugen', $blattText[$blatt], $blatt);
+        }
     }
 
     public function test_zweites_erzeugen_liefert_identische_zellwerte(): void
@@ -486,9 +496,16 @@ final class AuszaehlungExportTest extends DbTestCase
         $mappe = $this->laden($this->export()->erzeuge($leer));
         $blatt = $mappe->getSheetByName('Abrechnung');
 
-        $this->assertSame(1, $blatt->getHighestDataRow());
         $this->assertSame(self::KOPFZEILEN['Abrechnung'], $blatt->rangeToArray('A1:H1', null, false, false)[0]);
-        $this->assertSame('A1:H1', $blatt->getAutoFilter()->getRange());
+
+        foreach (['Abrechnung', 'Positionen', 'Buchungen', 'Bestand', 'Bewegungen'] as $name) {
+            $blatt  = $mappe->getSheetByName($name);
+            $letzte = $blatt->getHighestColumn();
+            $this->assertSame(1, $blatt->getHighestDataRow(), $name);
+            $this->assertSame([], $blatt->getTableCollection()->getArrayCopy(), $name);
+            $this->assertSame("A1:{$letzte}1", $blatt->getAutoFilter()->getRange(), $name);
+            $this->assertSame(count(self::KOPFZEILEN[$name]), \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($letzte), $name);
+        }
         $this->assertSame(0, self::cent($this->meta($mappe)['summe_abrechnung_eur']));
     }
 
@@ -498,6 +515,14 @@ final class AuszaehlungExportTest extends DbTestCase
 
         $this->expectException(\RuntimeException::class);
         $this->export()->erzeuge($entwurf);
+    }
+
+    public function test_abgeschlossen_ohne_abschlusszeitpunkt_wird_abgelehnt(): void
+    {
+        db_connect()->table('auszaehlungen')->where('id', $this->zweite)->update(['abgeschlossen_at' => null]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->export()->erzeuge($this->zweite);
     }
 
     public function test_nicht_schreibbares_ziel_wirft_ohne_teildatei(): void

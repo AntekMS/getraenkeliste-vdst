@@ -115,8 +115,10 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   Bemerkung ≤ 1000 Zeichen, Array-Parameter zählen als leer. „Stichtag übernehmen“ = GET `?stichtag=` (lädt das Soll neu; getippte Ist-Werte gehen verloren, gespeicherte Entwurfswerte bleiben sichtbar). Das versteckte Feld im POST-Formular gilt; JS zeigt nur einen Hinweis bei abweichendem Datum.
 - Excel-Export (Stufe 2, Task 8): `Libraries/AuszaehlungExport` (Service `auszaehlungExport()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`; Tests nutzen ein Temp-Verzeichnis):
   `erzeuge(auszaehlungId)` → relativer Pfad `exporte/Auszaehlung_<bereich>_<von>_bis_<bis>.xlsx` (Suffix `_<id>`, wenn **eine andere Auszählung** den Namen in `datei_pfad` hat), nur für
-  abgeschlossene (sonst `RuntimeException`), schreibt `datei_pfad` **nicht** (macht Task 9). Zeitraum = (`zeitraum_von`, `stichtag`], inklusiv nur ohne frühere abgeschlossene Auszählung des Bereichs.
-  Liest nur gespeicherte Daten (Meta `erstellt_am` = `abgeschlossen_at`) → Neu-Erzeugen liefert identische Zellwerte. Blätter/Spalten/Meta-Schlüssel exakt Spec 8.2 (`format_version` = `getraenkeliste-auszaehlung/1`,
+  abgeschlossene mit `abgeschlossen_at` (sonst `RuntimeException`), schreibt `datei_pfad` **nicht** (macht Task 9). Zeitraum = (`zeitraum_von`, `stichtag`], inklusiv nur ohne frühere abgeschlossene Auszählung des Bereichs.
+  Liest nur gespeicherte Daten (Meta `erstellt_am` = `abgeschlossen_at`) → Neu-Erzeugen liefert identische Zellwerte; Namen/Gruppe/Kategorie aber aus den Stammdaten beim
+  Erzeugen (IDs, Mengen, Beträge eingefroren; steht in `Erklaerungen`). `Abrechnung.betrag_eur` kann durch Korrekturen 0 oder negativ sein. Meta `zeitraum_von/bis`, `erstellt_am` sind Excel-Datumszellen.
+  Übersicht ordnet Couleur/Bund über `PersonModel::sammelkontoId` zu. Blätter/Spalten/Meta-Schlüssel exakt Spec 8.2 (`format_version` = `getraenkeliste-auszaehlung/1`,
   bei Änderungen erhöhen). Alle Zellen per `setCellValueExplicit` (Text mit „=“ wird nie Formel), Datum als Excel-Seriennummer `yyyy-mm-dd hh:mm`, Beträge = Cent-Summe/100 mit `0.00`,
   Geldsummen in SQL mit `CAST(einzelpreis_cent AS SIGNED)`. Datenblatt = Excel-`Table` (`Tabelle_<Blatt>`); ohne Datenzeilen nur AutoFilter auf der Kopfzeile (Table braucht ≥ 1 Datenzeile).
   `Statistik` mit Säulendiagramm (Writer `setIncludeCharts(true)`); Schreiben in `.…tmp` im Zielordner, dann `rename`.
