@@ -116,7 +116,16 @@ docker exec -it -u www-data getraenkeliste-web php spark admin:anlegen
 
 Im Haus-WLAN: `http://<pi-hostname oder IP>:8090/` (muss zu `app.baseURL` passen). Port 8090 nur
 im Vereinsnetz erreichbar machen, **nicht** im Router nach außen freigeben. Weiter mit der
-Inbetriebnahme aus der `README.md` (Personen-Import, Getränke & Preise, Tablet freischalten).
+Inbetriebnahme aus der `README.md` (Personen-Import, Getränke & Preise, Start-Auszählung, Tablet freischalten).
+
+### Erste Start-Auszählung
+
+Nach dem Anlegen der Artikel (und vor dem ersten echten Betrieb) je Bereich: als Getränkewart oder Admin
+Wart → Auszählung öffnen, den gezählten Ist-Bestand jedes Artikels eintragen und abschließen. Das ist die
+Start-Auszählung (Art „Start“) und legt den Anfangsbestand fest. Die erzeugte Excel-Datei liegt in
+`writable/exporte/` (im Container `/var/www/html/writable/exporte/`) und ist im täglichen Backup
+(`exporte_*.tar.gz`) enthalten; Download und „Datei neu erzeugen“ unter Wart → Auszählungen.
+Ohne Auszählung zeigt die App nach `erinnerung_tage` (Standard 31) ein Erinnerungsbanner.
 
 ## Backup einrichten
 

@@ -132,6 +132,14 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   und `GET …/auszaehlungen/(:num)/download` mit `recht:auszaehlung_ansehen@<bereich>`, `POST …/auszaehlungen/(:num)/neu-erzeugen` mit `auszaehlung_durchfuehren`; Entwurf/fremder
   Bereich/unbekannt → 404; fehlende Datei → Redirect zur Liste mit Flash. Download = `response->download($pfad, null, true)->setFileName(basename)`. Rückfragen über
   `data-confirm` an Submit-Knopf oder Formular (`public/js/app.js`, delegiert, keine Inline-Handler; Cache-Buster `app.js?v=3`).
+- Wart-Bereich Überblick (Stufe 2 komplett): alle Routen `wart/<bereich>/…` — `bestand`, `lieferung`, `bewegung`, `buchungen` (+ `storno`, `korrektur`), `auszaehlung` (Entwurf/Abschluss),
+  `auszaehlungen` (Liste, `…/(:num)/download`, `…/neu-erzeugen`). Rechte nur über Filter `recht:<aktion>@<bereich>`; Zeiträume (`Zeitraeume`), Einfrieren und Bereichssperre
+  gelten für Buchen, Storno, Bewegungen, Korrektur und Abschluss gleich. Exporte (`.xlsx`, `format_version getraenkeliste-auszaehlung/1`) liegen in `writable/exporte/`
+  (im Backup enthalten, `datei_pfad` relativ), Download nur aus diesem Verzeichnis (`realpath`-Prüfung). Neue Wart-Routen ⇒ `ZugriffsschutzTest::ROUTEN` ergänzen.
+- Erinnerungsbanner (Stufe 2, Task 10): Partial `layouts/erinnerung.php` (in `layouts/main.php`, nicht in `einfach`/Tablet) ruft `Zeitraeume::erinnerungen(rollen)`:
+  je **aktivem** Bereich mit Recht `auszaehlung_durchfuehren` und `tageSeitLetztemAbschluss` (volle Kalendertage ab Stichtag, sonst Inbetriebnahme, via `uhr`) > `erinnerung_tage`
+  ein `.alert-warning` (ohne Auto-Dismiss) „Die letzte Auszählung ist <n> Tage her.“ bzw. „Es gab noch keine Auszählung.“ + Link `wart/<bereich>/auszaehlung`.
+  Ohne das Recht (Mitglieder) entsteht keine DB-Abfrage. `public/js/app.js`: `data-confirm`-Knopf sperrt sich nach der Bestätigung (Spinner), Cache-Buster `?v=4`.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;

@@ -4,7 +4,7 @@
 
 <?= $this->section('content') ?>
 <?php
-$anzeige = static fn (string $zeit): string => date('d.m.Y H:i', strtotime($zeit));
+$anzeige = static fn (?string $zeit): string => $zeit === null ? '–' : date('d.m.Y H:i', strtotime($zeit));
 $basis   = 'wart/' . $bereich['schluessel'] . '/auszaehlungen/';
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">

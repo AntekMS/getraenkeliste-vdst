@@ -70,14 +70,28 @@ Auf dem Raspberry Pi Schritt für Schritt: `docs/DEPLOY-PI.md`.
 3. Anmelden, Personen per CSV importieren (Verwaltung → Personen → CSV-Import) und Rollen vergeben;
    die ausgegebenen Einmal-Passwörter drucken oder verteilen (sie werden nur einmal angezeigt).
    Danach Kategorien und Artikel unter „Getränke & Preise“ anlegen.
-4. *(Stufe 2)* Start-Auszählung je Bereich.
+4. Start-Auszählung je Bereich: Wart → Auszählung, Ist eintragen, Abschließen (legt den Startbestand fest;
+   die Excel-Datei landet in `writable/exporte/` und ist im Backup enthalten).
 5. Tablet freischalten: Verwaltung → Tablets → Freischaltcode erzeugen (8 Ziffern, 15 Minuten gültig),
    am Tablet `/tablet/freischalten` öffnen, Code und Gerätename eingeben.
 6. Backup-Timer einrichten (täglich 02:30 auf den USB-Stick `/mnt/kasse-backup/getraenkeliste/`):
    `docs/DEPLOY-PI.md`, Inhalt und Wiederherstellung: `docs/BACKUP.md`.
 
-In Stufe 1 gibt es genau einen Abrechnungszeitraum ab dem Inbetriebnahme-Zeitpunkt (Einstellungen,
-nicht änderbar). Die Start-Auszählung folgt in Stufe 2.
+Der erste Abrechnungszeitraum beginnt am Inbetriebnahme-Zeitpunkt (Einstellungen, nicht änderbar);
+jede abgeschlossene Auszählung beendet einen Zeitraum und friert ihn ein.
+
+## Getränkewart (Stufe 2)
+
+Menü „Getränkewart“ (Rolle `getraenkewart` bzw. Admin):
+
+- **Bestand** mit Ampel (ok / niedrig / leer / negativ), **Lieferung** erfassen (Kisten × Gebinde + Stück,
+  optional Einkaufspreis), **Schwund/Korrektur** als Bestandsbewegung mit Pflichtbemerkung.
+- **Buchungen** des laufenden Zeitraums einsehen, stornieren (Grund Pflicht, keine Frist) und Korrekturbuchungen anlegen.
+- **Auszählung**: Ist-Werte eintragen (Entwurf speichern, später abschließen). Der Abschluss legt den Stichtag fest, friert
+  den Zeitraum ein und erzeugt eine Excel-Datei fürs Kassensystem; **Auszählungen** listet alle Abschlüsse mit Download
+  und „Datei neu erzeugen“.
+- Ein Banner erinnert an die Auszählung, wenn die letzte (bzw. die Inbetriebnahme) länger als „Erinnerung nach (Tagen)“
+  (Einstellungen, Standard 31) zurückliegt.
 
 ## Backup
 

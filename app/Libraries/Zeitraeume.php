@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Libraries;
 
 use App\Models\AuszaehlungModel;
+use App\Models\BereichModel;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -63,6 +64,58 @@ class Zeitraeume
                 'von_inklusiv'   => $vorherige === null,
                 'auszaehlung_id' => (int) $a['id'],
             ];
+        }
+
+        return $liste;
+    }
+
+    /**
+     * Volle Kalendertage vom letzten Stichtag (sonst von der Inbetriebnahme) bis „jetzt“.
+     */
+    public function tageSeitLetztemAbschluss(int $bereichId): int
+    {
+        $beginn = $this->beginn($bereichId)->setTime(0, 0);
+        $heute  = service('uhr')->jetzt()->setTime(0, 0);
+
+        return max(0, (int) $beginn->diff($heute)->format('%r%a'));
+    }
+
+    /**
+     * Erinnerungen für das Banner: je aktivem Bereich, in dem die Rollen Auszählungen durchführen dürfen
+     * und der letzte Stichtag (sonst Inbetriebnahme) mehr als `erinnerung_tage` Tage zurückliegt.
+     * Ohne das Recht in irgendeinem Bereich entsteht keine weitere Abfrage.
+     *
+     * @param list<string> $rollen
+     *
+     * @return list<array{schluessel: string, name: string, tage: int, hat_auszaehlung: bool}>
+     */
+    public function erinnerungen(array $rollen): array
+    {
+        $recht = Berechtigung::AUSZAEHLUNG_DURCHFUEHREN;
+
+        if (! Berechtigung::darf($rollen, $recht, 'getraenke') && ! Berechtigung::darf($rollen, $recht, 'kiosk')) {
+            return [];
+        }
+
+        $schwelle = service('einstellungen')->int('erinnerung_tage');
+        $liste    = [];
+
+        foreach ((new BereichModel())->aktive() as $bereich) {
+            if (! Berechtigung::darf($rollen, $recht, $bereich['schluessel'])) {
+                continue;
+            }
+
+            $id   = (int) $bereich['id'];
+            $tage = $this->tageSeitLetztemAbschluss($id);
+
+            if ($tage > $schwelle) {
+                $liste[] = [
+                    'schluessel'      => $bereich['schluessel'],
+                    'name'            => $bereich['name'],
+                    'tage'            => $tage,
+                    'hat_auszaehlung' => $this->letzterStichtag($id) !== null,
+                ];
+            }
         }
 
         return $liste;

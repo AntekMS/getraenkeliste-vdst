@@ -57,8 +57,20 @@ document.addEventListener('click', function (event) {
     const knopf = event.target.closest('button[data-confirm], input[type="submit"][data-confirm]');
     if (knopf && !window.confirm(knopf.dataset.confirm)) {
         event.preventDefault();
+        return;
+    }
+    if (knopf && knopf.form) {
+        sperreNachBestaetigung(knopf);
     }
 });
+
+// Nach der Bestätigung den Knopf sperren (kein zweiter Abschluss per Doppelklick); dieser Klick sendet das Formular noch.
+function sperreNachBestaetigung(knopf) {
+    setTimeout(function () {
+        knopf.disabled = true;
+        knopf.insertAdjacentHTML('afterbegin', '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>');
+    }, 0);
+}
 
 document.addEventListener('submit', function (event) {
     const formular = event.target;
