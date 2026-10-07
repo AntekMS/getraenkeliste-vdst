@@ -106,6 +106,12 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   „Gerade wird abgerechnet – bitte gleich erneut versuchen.“ über `BuchungService::sperrfehlerAbgelehnt`. Summen mit negativer Menge: `einzelpreis_cent` ist UNSIGNED →
   in SQL immer `CAST(einzelpreis_cent AS SIGNED)` vor der Multiplikation. Testhelfer `DbTestCase::beiGesperrtemBereich()` (zweite Verbindung hält die Bereichszeile).
   Lieferung: Menge je Zeile ≤ 1 000 000 (sonst Feldfehler „Menge zu groß.“).
+- Auszählung Entwurf (Stufe 2, Task 7): `GET/POST wart/<bereich>/auszaehlung` (`Wart\AuszaehlungController`, View `wart/auszaehlung_formular`, `public/js/auszaehlung.js` = Differenz live aus `data-soll`,
+  Recht `auszaehlung_durchfuehren@<bereich>`; POST nur `aktion=entwurf`, sonst Fehlermeldung bis Task 9). `Libraries/AuszaehlungService` (Service `auszaehlungen()`): `vorschlag(bereichId, stichtag)` = Soll je Artikel
+  (Anfangsbestand = Ist der letzten abgeschlossenen Auszählung, Lieferungen/Schwund/Korrekturen/Verkauf im Fenster Beginn (inkl. nur ohne Abschluss) … Stichtag inklusive, `start` = Artikel hatte keine Position in einer
+  abgeschlossenen Auszählung; archivierte nur mit Aktivität), `speichereEntwurf` (höchstens ein Entwurf je Bereich, Positionen werden ersetzt, Soll als Momentaufnahme, `ist` NULL = ungezählt; Bereichssperre zuerst,
+  Stichtag frisch geprüft, 1205/1213 → „Gerade wird abgerechnet …“; fachliche Fehler = `AuszaehlungAbgelehnt` mit Feldfehlern `stichtag`/`ist.<id>`). Stichtag-Eingabe `datetime-local` (Minutengenauigkeit),
+  „Stichtag übernehmen“ = GET `?stichtag=` (lädt das Soll neu; getippte Ist-Werte gehen verloren, gespeicherte Entwurfswerte bleiben sichtbar).
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;

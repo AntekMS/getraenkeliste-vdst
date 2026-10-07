@@ -1106,6 +1106,11 @@ tfoot.table-light {
     max-width: 32rem;
 }
 
+/* Auszählung: schmales Ist-Feld in der Tabelle */
+.auszaehlung-ist {
+    max-width: 7rem;
+}
+
 /* Druckansicht (Einmal-Passwort-Liste): Navigation und Bedienelemente ausblenden */
 @media print {
     .app-sidebar,

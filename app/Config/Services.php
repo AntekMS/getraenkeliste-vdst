@@ -3,6 +3,7 @@
 namespace Config;
 
 use App\Libraries\Anmeldung;
+use App\Libraries\AuszaehlungService;
 use App\Libraries\BestandService;
 use App\Libraries\BuchungService;
 use App\Libraries\Einstellungen;
@@ -79,6 +80,15 @@ class Services extends BaseService
         }
 
         return new BestandService();
+    }
+
+    public static function auszaehlungen(bool $getShared = true): AuszaehlungService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('auszaehlungen');
+        }
+
+        return new AuszaehlungService();
     }
 
     public static function zeitraeume(bool $getShared = true): Zeitraeume
