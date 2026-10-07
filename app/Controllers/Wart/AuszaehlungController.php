@@ -32,14 +32,14 @@ class AuszaehlungController extends BaseController
         $jetzt     = service('uhr')->jetzt();
         $fehler    = session()->getFlashdata('fehler') ?? [];
 
-        $angefragt = (string) $this->request->getGet('stichtag');
+        $angefragt = $this->text($this->request->getGet('stichtag'));
         $stichtag  = $angefragt === '' ? null : $this->stichtag($angefragt);
 
         if ($angefragt !== '' && $stichtag === null) {
             $fehler['stichtag'] = self::MELDUNG_STICHTAG;
         }
 
-        $alt = (string) old('stichtag', '');
+        $alt = $this->text(old('stichtag', ''));
 
         if ($stichtag === null && $alt !== '') {
             $stichtag = $this->stichtag($alt);
@@ -74,7 +74,7 @@ class AuszaehlungController extends BaseController
             'gruppen'     => array_values($gruppen),
             'stichtag'    => $stichtag->format('Y-m-d\TH:i'),
             'ist'         => $gespeichert,
-            'bemerkung'   => (string) old('bemerkung', $entwurf['bemerkung'] ?? ''),
+            'bemerkung'   => $this->text(old('bemerkung', $entwurf['bemerkung'] ?? '')),
             'hatEntwurf'  => $entwurf !== null,
             'fehler'      => $fehler,
         ]);
@@ -86,11 +86,11 @@ class AuszaehlungController extends BaseController
         $zurueck = redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/auszaehlung'))->withInput();
 
         // Weitere Aktionen (Abschluss) folgen; bis dahin ist nur der Entwurf erlaubt.
-        if ((string) $this->request->getPost('aktion') !== 'entwurf') {
+        if ($this->text($this->request->getPost('aktion')) !== 'entwurf') {
             return $zurueck->with('error', 'Unbekannte Aktion.');
         }
 
-        $stichtag = $this->stichtag((string) $this->request->getPost('stichtag'));
+        $stichtag = $this->stichtag($this->text($this->request->getPost('stichtag')));
 
         if ($stichtag === null) {
             return $zurueck->with('error', 'Bitte die markierten Felder prüfen. Nichts gespeichert.')->with('fehler', ['stichtag' => self::MELDUNG_STICHTAG]);
@@ -126,7 +126,7 @@ class AuszaehlungController extends BaseController
                 (int) service('anmeldung')->person()['id'],
                 $stichtag,
                 $ist,
-                (string) $this->request->getPost('bemerkung'),
+                $this->text($this->request->getPost('bemerkung')),
             );
         } catch (AuszaehlungAbgelehnt $e) {
             return $zurueck->with('error', $e->getMessage())->with('fehler', $e->fehler);
@@ -152,6 +152,12 @@ class AuszaehlungController extends BaseController
         }
 
         return $zeit;
+    }
+
+    /** Array-Werte (`stichtag[]=…`) zählen als leer, nie als 500. */
+    private function text(mixed $wert): string
+    {
+        return is_scalar($wert) ? (string) $wert : '';
     }
 
     private function aktuelleMinute(DateTimeImmutable $jetzt): DateTimeImmutable

@@ -196,4 +196,33 @@ final class AuszaehlungServiceTest extends DbTestCase
             (new AuszaehlungService())->speichereEntwurf($this->bereich, $this->person, $this->zeit('2026-10-08 10:00:00'), [], null);
         });
     }
+
+    public function test_soll_stimmt_mit_dem_bestand_der_bestandsseite_ueberein(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $b = $this->artikelAnlegen(['name' => 'Dunkles', 'bestand_fuehren' => 1]);
+        $alt = $this->auszaehlungAnlegen('2026-10-03 00:00:00');
+
+        foreach ([[$a, 10], [$b, 4]] as [$artikel, $ist]) {
+            db_connect()->table('auszaehlung_positionen')->insert([
+                'auszaehlung_id' => $alt, 'artikel_id' => $artikel, 'anfangsbestand' => 0, 'lieferungen' => 0, 'schwund_erfasst' => 0,
+                'korrekturen' => 0, 'verkauft' => 0, 'soll' => $ist, 'ist' => $ist, 'differenz' => 0, 'start' => 0, 'preis_cent' => 150,
+            ]);
+        }
+
+        $this->bewegung($a, 'lieferung', 24, '2026-10-04 10:00:00');
+        $this->bewegung($a, 'schwund', -2, '2026-10-05 10:00:00');
+        $this->bewegung($a, 'korrektur', -3, '2026-10-06 10:00:00');
+        $this->bewegung($b, 'lieferung', 6, '2026-10-06 10:00:00');
+        $this->buchung($a, 5, '2026-10-04 12:00:00');
+        $this->buchung($a, 7, '2026-10-05 12:00:00', true);
+        $this->buchung($a, -2, '2026-10-07 12:00:00', false, 'korrektur');
+        $this->buchung($b, 1, '2026-10-08 12:00:00');
+
+        $v = $this->vorschlag('2026-10-10 12:00:00');
+
+        foreach ([$a, $b] as $artikel) {
+            $this->assertSame(service('bestand')->einzeln($artikel), $v[$artikel]['soll'], "Artikel {$artikel}");
+        }
+    }
 }

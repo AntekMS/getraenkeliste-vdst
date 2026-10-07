@@ -1,4 +1,4 @@
-// Auszählung: Differenz (Ist - Soll) live berechnen und den Stichtag ins Speichern-Formular übernehmen.
+// Auszählung: Differenz (Ist - Soll) live berechnen und bei geändertem Stichtag einen Hinweis zeigen.
 (function () {
     'use strict';
 
@@ -34,12 +34,13 @@
         }
     });
 
+    // Der geladene Stichtag (verstecktes Feld) gilt; bei Abweichung erscheint ein Hinweis.
     var anzeige = document.getElementById('stichtag');
-    var senden = document.getElementById('stichtag-senden');
+    var hinweis = document.getElementById('stichtag-hinweis');
 
-    if (anzeige && senden) {
-        formular.addEventListener('submit', function () {
-            senden.value = anzeige.value;
+    if (anzeige && hinweis) {
+        anzeige.addEventListener('input', function () {
+            hinweis.classList.toggle('d-none', anzeige.value === anzeige.dataset.geladen);
         });
     }
 }());

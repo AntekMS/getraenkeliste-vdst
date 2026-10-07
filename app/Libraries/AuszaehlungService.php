@@ -7,7 +7,6 @@ namespace App\Libraries;
 use App\Models\AuszaehlungModel;
 use App\Models\AuszaehlungPositionModel;
 use App\Models\BereichModel;
-use CodeIgniter\Database\BaseBuilder;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use DateTimeImmutable;
 
@@ -17,6 +16,7 @@ use DateTimeImmutable;
  */
 class AuszaehlungService
 {
+    public const MAX_BEMERKUNG = 1000;
     public const MELDUNG_IST = 'Ist muss eine ganze Zahl ≥ 0 sein.';
 
     /**
@@ -39,21 +39,8 @@ class AuszaehlungService
             return [];
         }
 
-        $ids        = array_map(static fn (array $a): int => (int) $a['id'], $artikel);
-        $zeitraeume = service('zeitraeume');
-        $beginn     = $zeitraeume->beginn($bereichId)->format('Y-m-d H:i:s');
-        $vergleich  = $zeitraeume->beginnInklusiv($bereichId) ? '>=' : '>';
-        $bis        = $stichtag->format('Y-m-d H:i:s');
-
-        $anfang = [];
-        $letzte = (new AuszaehlungModel())->letzteAbgeschlossene($bereichId);
-
-        if ($letzte !== null) {
-            foreach ($db->table('auszaehlung_positionen')->select('artikel_id, ist')
-                ->where('auszaehlung_id', $letzte['id'])->whereIn('artikel_id', $ids)->get()->getResultArray() as $p) {
-                $anfang[(int) $p['artikel_id']] = (int) $p['ist'];
-            }
-        }
+        $ids      = array_map(static fn (array $a): int => (int) $a['id'], $artikel);
+        $aggregat = service('bestand')->aggregat($bereichId, $ids, $stichtag);
 
         $frueher = [];
 
@@ -64,25 +51,13 @@ class AuszaehlungService
             $frueher[(int) $p['artikel_id']] = true;
         }
 
-        $bewegung = static fn (string $art): BaseBuilder => $db->table('bestandsbewegungen')->select('artikel_id, SUM(menge) AS summe')
-            ->where('art', $art)->whereIn('artikel_id', $ids)
-            ->where("erfolgt_at {$vergleich}", $beginn)->where('erfolgt_at <=', $bis)->groupBy('artikel_id');
-
-        $lieferungen = $this->summen($bewegung('lieferung'));
-        $schwund     = $this->summen($bewegung('schwund'));
-        $korrekturen = $this->summen($bewegung('korrektur'));
-        $verkauft    = $this->summen(
-            $db->table('buchungen')->select('artikel_id, SUM(menge) AS summe')
-                ->whereIn('artikel_id', $ids)->where('storniert_at', null)
-                ->where("gebucht_at {$vergleich}", $beginn)->where('gebucht_at <=', $bis)->groupBy('artikel_id'),
-        );
-
         $ergebnis = [];
 
         foreach ($artikel as $a) {
             $id       = (int) $a['id'];
+            $g        = $aggregat[$id];
             $position = AuszaehlungRechner::position(
-                $anfang[$id] ?? 0, $lieferungen[$id] ?? 0, $schwund[$id] ?? 0, $korrekturen[$id] ?? 0, $verkauft[$id] ?? 0,
+                $g['anfangsbestand'], $g['lieferungen'], $g['schwund_erfasst'], $g['korrekturen'], $g['verkauft'],
                 null, (int) $a['preis_cent'], ! isset($frueher[$id]),
             );
 
@@ -116,6 +91,10 @@ class AuszaehlungService
         $stichtag  = $stichtag->setTime((int) $stichtag->format('H'), (int) $stichtag->format('i'), 0);
         $bemerkung = $bemerkung === null || trim($bemerkung) === '' ? null : trim($bemerkung);
         $fehler    = [];
+
+        if ($bemerkung !== null && mb_strlen($bemerkung) > self::MAX_BEMERKUNG) {
+            $fehler['bemerkung'] = 'Die Bemerkung ist zu lang (höchstens ' . self::MAX_BEMERKUNG . ' Zeichen).';
+        }
 
         foreach ($ist as $artikelId => $wert) {
             if ($wert !== null && $wert < 0) {
@@ -197,19 +176,5 @@ class AuszaehlungService
     {
         return $p['soll'] !== 0 || $p['anfangsbestand'] !== 0 || $p['lieferungen'] !== 0
             || $p['schwund_erfasst'] !== 0 || $p['korrekturen'] !== 0 || $p['verkauft'] !== 0;
-    }
-
-    /**
-     * @return array<int, int>
-     */
-    private function summen(BaseBuilder $abfrage): array
-    {
-        $summen = [];
-
-        foreach ($abfrage->get()->getResultArray() as $zeile) {
-            $summen[(int) $zeile['artikel_id']] = (int) $zeile['summe'];
-        }
-
-        return $summen;
     }
 }

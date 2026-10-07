@@ -23,7 +23,8 @@ $altIst        = old('ist');
 <form action="<?= esc($basis) ?>" method="get" class="row g-2 align-items-end mb-4">
     <div class="col-md-5">
         <label for="stichtag" class="form-label">Stichtag</label>
-        <input type="datetime-local" class="form-control<?= $feld('stichtag') ?>" id="stichtag" name="stichtag" value="<?= esc($stichtag) ?>" required>
+        <input type="datetime-local" class="form-control<?= $feld('stichtag') ?>" id="stichtag" name="stichtag" value="<?= esc($stichtag) ?>" data-geladen="<?= esc($stichtag) ?>" required>
+        <div class="form-text text-warning-emphasis d-none" id="stichtag-hinweis">Bitte „Stichtag übernehmen“ klicken, um das Soll neu zu laden.</div>
         <?= $meldung('stichtag') ?>
     </div>
     <div class="col-auto">
@@ -89,5 +90,5 @@ $altIst        = old('ist');
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>
-<script src="<?= base_url('js/auszaehlung.js') ?>?v=1"></script>
+<script src="<?= base_url('js/auszaehlung.js') ?>?v=2"></script>
 <?= $this->endSection() ?>

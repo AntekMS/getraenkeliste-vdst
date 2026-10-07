@@ -279,6 +279,26 @@ class BestandService
      */
     private function bestaende(int $bereichId, array $artikelIds): array
     {
+        $bestaende = [];
+
+        foreach ($this->aggregat($bereichId, $artikelIds) as $id => $a) {
+            $bestaende[$id] = BestandRechner::bestand($a['anfangsbestand'], $a['lieferungen'] + $a['schwund_erfasst'] + $a['korrekturen'], $a['verkauft']);
+        }
+
+        return $bestaende;
+    }
+
+    /**
+     * Einzige Quelle für Anfangsbestand und Bewegungs-/Verkaufssummen (Bestandsseite und Auszählungs-Soll).
+     * Fenster: Beginn des laufenden Zeitraums (inklusiv nur ohne Abschluss) bis `$bis` inklusive (null = offen).
+     * Anfangsbestand = Ist der letzten abgeschlossenen Auszählung (sonst 0); stornierte Buchungen zählen nicht.
+     *
+     * @param list<int> $artikelIds
+     *
+     * @return array<int, array{anfangsbestand: int, lieferungen: int, schwund_erfasst: int, korrekturen: int, verkauft: int}>
+     */
+    public function aggregat(int $bereichId, array $artikelIds, ?\DateTimeImmutable $bis = null): array
+    {
         if ($artikelIds === []) {
             return [];
         }
@@ -289,9 +309,7 @@ class BestandService
         $db         = db_connect();
 
         $ist    = [];
-        $letzte = $db->table('auszaehlungen')->select('id')
-            ->where('bereich_id', $bereichId)->where('status', 'abgeschlossen')
-            ->orderBy('stichtag', 'DESC')->orderBy('id', 'DESC')->limit(1)->get()->getRowArray();
+        $letzte = (new \App\Models\AuszaehlungModel())->letzteAbgeschlossene($bereichId);
 
         if ($letzte !== null) {
             $positionen = $db->table('auszaehlung_positionen')->select('artikel_id, ist')
@@ -302,22 +320,38 @@ class BestandService
             }
         }
 
-        $bewegungen = $this->summen(
-            $db->table('bestandsbewegungen')->select('artikel_id, SUM(menge) AS summe')
-                ->whereIn('artikel_id', $artikelIds)->where("erfolgt_at {$vergleich}", $beginn)->groupBy('artikel_id'),
-        );
-        $verkauft = $this->summen(
-            $db->table('buchungen')->select('artikel_id, SUM(menge) AS summe')
-                ->whereIn('artikel_id', $artikelIds)->where('storniert_at', null)->where("gebucht_at {$vergleich}", $beginn)->groupBy('artikel_id'),
-        );
+        $bewegung = function (string $art) use ($db, $artikelIds, $vergleich, $beginn, $bis): array {
+            $q = $db->table('bestandsbewegungen')->select('artikel_id, SUM(menge) AS summe')
+                ->where('art', $art)->whereIn('artikel_id', $artikelIds)->where("erfolgt_at {$vergleich}", $beginn)->groupBy('artikel_id');
 
-        $bestaende = [];
+            if ($bis !== null) {
+                $q->where('erfolgt_at <=', $bis->format('Y-m-d H:i:s'));
+            }
 
-        foreach ($artikelIds as $id) {
-            $bestaende[$id] = BestandRechner::bestand($ist[$id] ?? 0, $bewegungen[$id] ?? 0, $verkauft[$id] ?? 0);
+            return $this->summen($q);
+        };
+
+        $q = $db->table('buchungen')->select('artikel_id, SUM(menge) AS summe')
+            ->whereIn('artikel_id', $artikelIds)->where('storniert_at', null)->where("gebucht_at {$vergleich}", $beginn)->groupBy('artikel_id');
+
+        if ($bis !== null) {
+            $q->where('gebucht_at <=', $bis->format('Y-m-d H:i:s'));
         }
 
-        return $bestaende;
+        $lieferungen = $bewegung('lieferung');
+        $schwund     = $bewegung('schwund');
+        $korrekturen = $bewegung('korrektur');
+        $verkauft    = $this->summen($q);
+        $ergebnis    = [];
+
+        foreach ($artikelIds as $id) {
+            $ergebnis[$id] = [
+                'anfangsbestand' => $ist[$id] ?? 0, 'lieferungen' => $lieferungen[$id] ?? 0, 'schwund_erfasst' => $schwund[$id] ?? 0,
+                'korrekturen' => $korrekturen[$id] ?? 0, 'verkauft' => $verkauft[$id] ?? 0,
+            ];
+        }
+
+        return $ergebnis;
     }
 
     /**

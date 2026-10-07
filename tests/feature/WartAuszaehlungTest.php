@@ -96,7 +96,10 @@ final class WartAuszaehlungTest extends DbTestCase
 
     public function test_stichtag_in_der_zukunft_wird_abgelehnt(): void
     {
-        $this->sende(['stichtag' => '2026-10-10T12:05', 'ist' => []]);
+        $antwort = $this->sende(['stichtag' => '2026-10-10T12:05', 'ist' => []]);
+
+        $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
+        $antwort->assertSessionHas('fehler', ['stichtag' => 'Der Stichtag darf nicht in der Zukunft liegen.']);
 
         $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
     }
@@ -106,7 +109,10 @@ final class WartAuszaehlungTest extends DbTestCase
         $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
 
         foreach (['-1', 'abc', '1,5'] as $wert) {
-            $this->sende(['stichtag' => '2026-10-09T08:00', 'ist' => [$a => $wert]]);
+            $antwort = $this->sende(['stichtag' => '2026-10-09T08:00', 'ist' => [$a => $wert]]);
+
+            $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
+            $antwort->assertSessionHas('fehler', ["ist.{$a}" => 'Ist muss eine ganze Zahl ≥ 0 sein.']);
         }
 
         $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
@@ -127,5 +133,28 @@ final class WartAuszaehlungTest extends DbTestCase
 
         $seite->assertOK();
         $seite->assertSee('Bitte einen gültigen Stichtag angeben.');
+    }
+
+    public function test_array_werte_fuehren_nicht_zu_einem_serverfehler(): void
+    {
+        $this->artikelAnlegen(['bestand_fuehren' => 1]);
+
+        $this->alsAngemeldet($this->wart)->get('wart/getraenke/auszaehlung?stichtag[]=x&stichtag[]=y')->assertOK();
+        $antwort = $this->sende(['stichtag' => ['x'], 'bemerkung' => ['y'], 'ist' => []]);
+
+        $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
+        $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
+
+        $this->sende(['stichtag' => '2026-10-09T08:00', 'bemerkung' => ['y'], 'ist' => []]);
+        $this->assertSame(1, db_connect()->table('auszaehlungen')->countAllResults());
+    }
+
+    public function test_zu_lange_bemerkung_wird_mit_feldfehler_abgelehnt(): void
+    {
+        $antwort = $this->sende(['stichtag' => '2026-10-09T08:00', 'ist' => [], 'bemerkung' => str_repeat('a', 1001)]);
+
+        $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
+        $antwort->assertSessionHas('fehler');
+        $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
     }
 }
