@@ -8,17 +8,20 @@ use App\Controllers\BaseController;
 use App\Libraries\AuszaehlungAbgelehnt;
 use App\Libraries\AuszaehlungRechner;
 use App\Libraries\AuszaehlungService;
+use App\Libraries\Berechtigung;
 use App\Models\AuszaehlungModel;
 use App\Models\AuszaehlungPositionModel;
 use App\Models\BereichModel;
 use CodeIgniter\Exceptions\PageNotFoundException;
+use CodeIgniter\HTTP\DownloadResponse;
 use CodeIgniter\HTTP\RedirectResponse;
 use DateTimeImmutable;
 use DateTimeZone;
+use Throwable;
 
 /**
- * Auszählung des Warts: Soll-Vorschlag und Entwurf (Abschluss folgt). Der Bereich kommt aus der Route
- * (Recht über den Filter); unbekannte oder inaktive Bereiche sind 404.
+ * Auszählung des Warts: Soll-Vorschlag, Entwurf und Abschluss; Liste der abgeschlossenen Auszählungen mit Download
+ * und „Datei neu erzeugen“. Der Bereich kommt aus der Route (Recht über den Filter); unbekannte oder inaktive Bereiche sind 404.
  */
 class AuszaehlungController extends BaseController
 {
@@ -84,9 +87,9 @@ class AuszaehlungController extends BaseController
     {
         $bereich = $this->bereich($bereichSchluessel);
         $zurueck = redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/auszaehlung'))->withInput();
+        $aktion  = $this->text($this->request->getPost('aktion'));
 
-        // Weitere Aktionen (Abschluss) folgen; bis dahin ist nur der Entwurf erlaubt.
-        if ($this->text($this->request->getPost('aktion')) !== 'entwurf') {
+        if (! in_array($aktion, ['entwurf', 'abschliessen'], true)) {
             return $zurueck->with('error', 'Unbekannte Aktion.');
         }
 
@@ -120,19 +123,100 @@ class AuszaehlungController extends BaseController
             return $zurueck->with('error', 'Bitte die markierten Felder prüfen. Nichts gespeichert.')->with('fehler', $fehler);
         }
 
+        $dienst    = service('auszaehlungen');
+        $argumente = [(int) $bereich['id'], (int) service('anmeldung')->person()['id'], $stichtag, $ist, $this->text($this->request->getPost('bemerkung'))];
+
         try {
-            service('auszaehlungen')->speichereEntwurf(
-                (int) $bereich['id'],
-                (int) service('anmeldung')->person()['id'],
-                $stichtag,
-                $ist,
-                $this->text($this->request->getPost('bemerkung')),
-            );
+            if ($aktion === 'entwurf') {
+                $dienst->speichereEntwurf(...$argumente);
+
+                return redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/auszaehlung'))->with('success', 'Entwurf gespeichert.');
+            }
+
+            $id = $dienst->schliesseAb(...$argumente);
         } catch (AuszaehlungAbgelehnt $e) {
             return $zurueck->with('error', $e->getMessage())->with('fehler', $e->fehler);
         }
 
-        return redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/auszaehlung'))->with('success', 'Entwurf gespeichert.');
+        $weiter = redirect()->to($this->listeUrl($bereich))->with('success', 'Auszählung abgeschlossen.');
+
+        // Review Focus 2: die Auszählung bleibt abgeschlossen, die Datei lässt sich in der Liste neu erzeugen.
+        if ($dienst->dateiFehlt($id)) {
+            $weiter->with('error', 'Die Excel-Datei konnte nicht erzeugt werden. Bitte „Datei neu erzeugen“ verwenden.');
+        }
+
+        return $weiter;
+    }
+
+    public function liste(string $bereichSchluessel): string
+    {
+        $bereich = $this->bereich($bereichSchluessel);
+
+        return view('wart/auszaehlungen', [
+            'bereich'       => $bereich,
+            'auszaehlungen' => (new AuszaehlungModel())->liste((int) $bereich['id']),
+            'darfErzeugen'  => Berechtigung::darf(service('anmeldung')->rollen(), Berechtigung::AUSZAEHLUNG_DURCHFUEHREN, (string) $bereich['schluessel']),
+        ]);
+    }
+
+    /**
+     * Pfad nur aus der DB, aufgelöst und geprüft unter `exporte/` (nie aus dem Request).
+     */
+    public function download(string $bereichSchluessel, string $id): DownloadResponse|RedirectResponse
+    {
+        $bereich     = $this->bereich($bereichSchluessel);
+        $auszaehlung = $this->abgeschlossene($bereich, $id);
+        $datei       = $auszaehlung['datei_pfad'] === null ? null : service('auszaehlungExport')->datei((string) $auszaehlung['datei_pfad']);
+
+        if ($datei === null) {
+            return redirect()->to($this->listeUrl($bereich))->with('error', 'Die Datei ist nicht vorhanden. Bitte „Datei neu erzeugen“ verwenden.');
+        }
+
+        return $this->response->download($datei, null, true)->setFileName(basename($datei));
+    }
+
+    public function neuErzeugen(string $bereichSchluessel, string $id): RedirectResponse
+    {
+        $bereich     = $this->bereich($bereichSchluessel);
+        $auszaehlung = $this->abgeschlossene($bereich, $id);
+        $liste       = redirect()->to($this->listeUrl($bereich));
+
+        try {
+            service('auszaehlungen')->dateiNeuErzeugen((int) $auszaehlung['id'], (int) service('anmeldung')->person()['id']);
+        } catch (Throwable $e) {
+            log_message('error', 'Excel-Datei der Auszählung {id} nicht erzeugt: {meldung}', ['id' => $auszaehlung['id'], 'meldung' => $e->getMessage()]);
+
+            return $liste->with('error', 'Die Excel-Datei konnte nicht erzeugt werden.');
+        }
+
+        return $liste->with('success', 'Datei neu erzeugt.');
+    }
+
+    /**
+     * Abgeschlossene Auszählung dieses Bereichs, sonst 404 (Entwurf, anderer Bereich, unbekannt).
+     *
+     * @param array<string, mixed> $bereich
+     *
+     * @return array<string, mixed>
+     */
+    private function abgeschlossene(array $bereich, string $id): array
+    {
+        $auszaehlung = (new AuszaehlungModel())->where('id', (int) $id)->where('bereich_id', (int) $bereich['id'])
+            ->where('status', 'abgeschlossen')->first();
+
+        if ($auszaehlung === null) {
+            throw PageNotFoundException::forPageNotFound();
+        }
+
+        return $auszaehlung;
+    }
+
+    /**
+     * @param array<string, mixed> $bereich
+     */
+    private function listeUrl(array $bereich): string
+    {
+        return site_url('wart/' . $bereich['schluessel'] . '/auszaehlungen');
     }
 
     /**

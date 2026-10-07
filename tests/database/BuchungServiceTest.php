@@ -463,6 +463,34 @@ final class BuchungServiceTest extends DbTestCase
         $this->seeNumRecords(0, 'buchungen', []);
     }
 
+    /**
+     * Der Zeiträume-Cache stammt aus der Zeit vor einem (in einem anderen Request) committeten Abschluss: Buchen und Storno
+     * müssen ihn unter der Bereichssperre verwerfen (`vergiss()`), sonst rutschten sie in den eingefrorenen Zeitraum.
+     */
+    public function test_veralteter_zeitraeume_cache_wird_unter_der_sperre_verworfen(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        $this->assertNull(service('zeitraeume')->letzterStichtag($this->bereichId('getraenke')), 'Cache vorbelegt: kein Abschluss');
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+
+        foreach ([
+            'Dieser Zeitraum ist abgeschlossen. Nicht gebucht.' => static fn () => service('buchungen')->bucheVorgang(self::V2, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]),
+            'Dieser Zeitraum ist abgeschlossen.'                => static fn () => service('buchungen')->storniereVorgang(self::V1, $konto),
+        ] as $meldung => $aktion) {
+            try {
+                $aktion();
+                $this->fail('Ablehnung erwartet: ' . $meldung);
+            } catch (BuchungAbgelehnt $e) {
+                $this->assertSame($meldung, $e->getMessage());
+            }
+        }
+
+        $this->seeNumRecords(1, 'buchungen', ['storniert_at' => null]);
+    }
+
     public function test_buchung_sperrt_bereich(): void
     {
         $konto   = $this->personAnlegen();

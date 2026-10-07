@@ -107,7 +107,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   in SQL immer `CAST(einzelpreis_cent AS SIGNED)` vor der Multiplikation. Testhelfer `DbTestCase::beiGesperrtemBereich()` (zweite Verbindung hält die Bereichszeile).
   Lieferung: Menge je Zeile ≤ 1 000 000 (sonst Feldfehler „Menge zu groß.“).
 - Auszählung Entwurf (Stufe 2, Task 7): `GET/POST wart/<bereich>/auszaehlung` (`Wart\AuszaehlungController`, View `wart/auszaehlung_formular`, `public/js/auszaehlung.js` = Differenz live aus `data-soll`,
-  Recht `auszaehlung_durchfuehren@<bereich>`; POST nur `aktion=entwurf`, sonst Fehlermeldung bis Task 9). `Libraries/AuszaehlungService` (Service `auszaehlungen()`): `vorschlag(bereichId, stichtag)` = Soll je Artikel
+  Recht `auszaehlung_durchfuehren@<bereich>`; POST `aktion=entwurf|abschliessen` über zwei Submit-Knöpfe, Entwurf zuerst im DOM). `Libraries/AuszaehlungService` (Service `auszaehlungen()`): `vorschlag(bereichId, stichtag)` = Soll je Artikel
   über **`BestandService::aggregat(bereichId, artikelIds, ?bis)`** (einzige Quelle für Anfangsbestand/Lieferungen/Schwund/Korrekturen/Verkauf; auch die Bestandsseite rechnet damit, `AuszaehlungServiceTest` pinnt Soll = Bestand)
   (Anfangsbestand = Ist der letzten abgeschlossenen Auszählung, Lieferungen/Schwund/Korrekturen/Verkauf im Fenster Beginn (inkl. nur ohne Abschluss) … Stichtag inklusive, `start` = Artikel hatte keine Position in einer
   abgeschlossenen Auszählung; archivierte nur mit Aktivität), `speichereEntwurf` (höchstens ein Entwurf je Bereich, Positionen werden ersetzt, Soll als Momentaufnahme, `ist` NULL = ungezählt; Bereichssperre zuerst,
@@ -122,6 +122,16 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   bei Änderungen erhöhen). Alle Zellen per `setCellValueExplicit` (Text mit „=“ wird nie Formel), Datum als Excel-Seriennummer `yyyy-mm-dd hh:mm`, Beträge = Cent-Summe/100 mit `0.00`,
   Geldsummen in SQL mit `CAST(einzelpreis_cent AS SIGNED)`. Datenblatt = Excel-`Table` (`Tabelle_<Blatt>`); ohne Datenzeilen nur AutoFilter auf der Kopfzeile (Table braucht ≥ 1 Datenzeile).
   `Statistik` mit Säulendiagramm (Writer `setIncludeCharts(true)`); Schreiben in `.…tmp` im Zielordner, dann `rename`.
+  `datei(relativ)` → absoluter Pfad nur, wenn die Datei existiert und per `realpath` unter `<basis>/exporte/` liegt (sonst null; Download nutzt nur das).
+- Abschluss/Liste (Stufe 2, Task 9): `AuszaehlungService::schliesseAb(bereichId, wartId, stichtag, ist, bemerkung): int` – eine kurze Transaktion (gemeinsam mit
+  `speichereEntwurf` über `schreibend()` + `kopf()`): Bereichssperre zuerst, `vergiss()`, Testnaht `nachDerSperre(bereichId)`, Stichtag frisch geprüft, Positionen **neu aus
+  `vorschlag()`** (nie aus dem Entwurf), Ist für jeden Artikel Pflicht („Bitte für jeden Artikel einen Ist-Wert eintragen.“, Feldfehler `ist.<id>` = `MELDUNG_IST_FEHLT`), Entwurf wird
+  zur abgeschlossenen Auszählung (sonst neu), `erstellt_von_id` = wer abschließt (Liste/Excel zeigen es als „abgeschlossen von“), Protokoll `abgeschlossen`. **Nach** dem Commit
+  `vergiss()` und Export in `try/catch(Throwable)` → `datei_pfad`; Fehler → `log_message('error')`, `datei_pfad` bleibt NULL, Controller fragt `dateiFehlt(id)` und setzt zusätzlich
+  Flash `error`. `dateiNeuErzeugen(id, ?personId)` (Protokoll `datei_erzeugt`). Routen: `GET wart/<bereich>/auszaehlungen` (View `wart/auszaehlungen`, neueste zuerst, `AuszaehlungModel::liste`)
+  und `GET …/auszaehlungen/(:num)/download` mit `recht:auszaehlung_ansehen@<bereich>`, `POST …/auszaehlungen/(:num)/neu-erzeugen` mit `auszaehlung_durchfuehren`; Entwurf/fremder
+  Bereich/unbekannt → 404; fehlende Datei → Redirect zur Liste mit Flash. Download = `response->download($pfad, null, true)->setFileName(basename)`. Rückfragen über
+  `data-confirm` an Submit-Knopf oder Formular (`public/js/app.js`, delegiert, keine Inline-Handler; Cache-Buster `app.js?v=3`).
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;

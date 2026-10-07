@@ -48,6 +48,21 @@ class AuszaehlungModel extends Model
         return $this->abgeschlossenQuery($bereichId)->findAll();
     }
 
+    /**
+     * Abgeschlossene Auszählungen des Bereichs für die Liste (neueste zuerst) mit `abgeschlossen_von` (Anzeigename).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function liste(int $bereichId): array
+    {
+        return $this->db->table('auszaehlungen au')
+            ->select('au.*, p.anzeigename AS abgeschlossen_von')
+            ->join('personen p', 'p.id = au.erstellt_von_id')
+            ->where('au.bereich_id', $bereichId)->where('au.status', 'abgeschlossen')
+            ->orderBy('au.stichtag', 'DESC')->orderBy('au.id', 'DESC')
+            ->get()->getResultArray();
+    }
+
     private function abgeschlossenQuery(int $bereichId): static
     {
         return $this->where('bereich_id', $bereichId)->where('status', 'abgeschlossen')

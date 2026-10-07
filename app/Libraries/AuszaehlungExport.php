@@ -171,6 +171,22 @@ class AuszaehlungExport
     }
 
     /**
+     * Absoluter Pfad einer gespeicherten Exportdatei (`datei_pfad` aus der DB) oder null, wenn sie fehlt oder nicht
+     * innerhalb von `<basis>/exporte/` liegt (`realpath`-Prüfung gegen `..` und Symlinks).
+     */
+    public function datei(string $relativ): ?string
+    {
+        $verzeichnis = realpath($this->basis . 'exporte');
+        $datei       = realpath($this->basis . $relativ);
+
+        if ($verzeichnis === false || $datei === false || ! is_file($datei)) {
+            return null;
+        }
+
+        return str_starts_with($datei, $verzeichnis . DIRECTORY_SEPARATOR) ? $datei : null;
+    }
+
+    /**
      * @param array<string, mixed> $auszaehlung
      *
      * @return array{von: DateTimeImmutable, bis: DateTimeImmutable, von_inklusiv: bool, vorherige: ?array<string, mixed>}

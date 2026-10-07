@@ -102,5 +102,11 @@ foreach (['getraenke', 'kiosk'] as $bereich) {
 
         $routes->get('auszaehlung', 'AuszaehlungController::index/' . $bereich, $auszaehlung);
         $routes->post('auszaehlung', 'AuszaehlungController::speichern/' . $bereich, $auszaehlung);
+        $routes->post('auszaehlungen/(:num)/neu-erzeugen', 'AuszaehlungController::neuErzeugen/' . $bereich . '/$1', $auszaehlung);
+
+        $ansehen = ['filter' => ['angemeldet', 'recht:auszaehlung_ansehen@' . $bereich]];
+
+        $routes->get('auszaehlungen', 'AuszaehlungController::liste/' . $bereich, $ansehen);
+        $routes->get('auszaehlungen/(:num)/download', 'AuszaehlungController::download/' . $bereich . '/$1', $ansehen);
     });
 }

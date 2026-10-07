@@ -1,6 +1,6 @@
 /**
  * VDSt Getränkeliste - gemeinsames JavaScript
- * Darkmode-Umschalter und automatisches Ausblenden von Flash-Bannern.
+ * Darkmode-Umschalter, automatisches Ausblenden von Flash-Bannern, Drucken und Rückfragen (data-confirm).
  */
 
 // Icon/aria-pressed aller .js-theme-toggle-Buttons an den aktuellen Theme-Wert angleichen
@@ -44,11 +44,25 @@ document.addEventListener('DOMContentLoaded', function () {
     syncThemeToggleIcons(document.documentElement.getAttribute('data-bs-theme'));
 });
 
-
 // Druck-Button (Opt-in über data-print), ohne Inline-Handler wegen CSP
 document.addEventListener('click', function (event) {
     const button = event.target.closest('[data-print]');
     if (button) {
         window.print();
+    }
+});
+
+// Rückfrage vor folgenreichen Aktionen (Opt-in über data-confirm an Submit-Knopf oder Formular), ohne Inline-Handler wegen CSP
+document.addEventListener('click', function (event) {
+    const knopf = event.target.closest('button[data-confirm], input[type="submit"][data-confirm]');
+    if (knopf && !window.confirm(knopf.dataset.confirm)) {
+        event.preventDefault();
+    }
+});
+
+document.addEventListener('submit', function (event) {
+    const formular = event.target;
+    if (formular.matches('form[data-confirm]') && !window.confirm(formular.dataset.confirm)) {
+        event.preventDefault();
     }
 });

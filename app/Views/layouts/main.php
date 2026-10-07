@@ -47,8 +47,11 @@ $aktiv     = static fn (string $praefix): string => str_starts_with($pfad, $prae
             <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/buchungen') ?>" href="<?= base_url('wart/getraenke/buchungen') ?>">
                 <i class="bi bi-journal-check" aria-hidden="true"></i> Buchungen
             </a>
-            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/auszaehlung') ?>" href="<?= base_url('wart/getraenke/auszaehlung') ?>">
+            <a class="app-nav-link app-nav-sub <?= $pfad === 'wart/getraenke/auszaehlung' ? 'active' : '' ?>" href="<?= base_url('wart/getraenke/auszaehlung') ?>">
                 <i class="bi bi-clipboard-check" aria-hidden="true"></i> Auszählung
+            </a>
+            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/auszaehlungen') ?>" href="<?= base_url('wart/getraenke/auszaehlungen') ?>">
+                <i class="bi bi-archive" aria-hidden="true"></i> Auszählungen
             </a>
         <?php endif; ?>
 
@@ -117,7 +120,7 @@ $aktiv     = static fn (string $praefix): string => str_starts_with($pfad, $prae
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="<?= base_url('js/app.js') ?>?v=2"></script>
+<script src="<?= base_url('js/app.js') ?>?v=3"></script>
 <?= $this->renderSection('scripts') ?>
 </body>
 </html>

@@ -7,13 +7,14 @@
 $feld    = static fn (string $schluessel): string => isset($fehler[$schluessel]) ? ' is-invalid' : '';
 $meldung = static fn (string $schluessel): string => isset($fehler[$schluessel]) ? '<div class="invalid-feedback d-block">' . esc($fehler[$schluessel]) . '</div>' : '';
 $basis   = base_url('wart/' . $bereich['schluessel'] . '/auszaehlung');
-// Mit dem Abschluss (Task 9) wird „Abschließen“ zum .btn-vdst und der Entwurf zum Outline-Knopf: nur diese Klasse tauschen.
-$entwurfKlasse = 'btn-vdst';
-$altIst        = old('ist');
+$altIst  = old('ist');
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <h1 class="h3 mb-0">Auszählung – <?= esc($bereich['name']) ?></h1>
-    <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/bestand') ?>">Zum Bestand</a>
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/auszaehlungen') ?>">Abgeschlossene Auszählungen</a>
+        <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/bestand') ?>">Zum Bestand</a>
+    </div>
 </div>
 
 <?php if ($hatEntwurf): ?>
@@ -35,7 +36,6 @@ $altIst        = old('ist');
 
 <form action="<?= esc($basis) ?>" method="post" id="auszaehlung-form">
     <?= csrf_field() ?>
-    <input type="hidden" name="aktion" value="entwurf">
     <input type="hidden" name="stichtag" id="stichtag-senden" value="<?= esc($stichtag) ?>">
 
     <?php if ($gruppen === []): ?>
@@ -86,7 +86,13 @@ $altIst        = old('ist');
         <?= $meldung('bemerkung') ?>
     </div>
 
-    <button type="submit" class="btn <?= $entwurfKlasse ?>">Entwurf speichern</button>
+    <?php /* Entwurf zuerst: Enter in einem Feld löst den ersten Submit-Knopf aus, nie den Abschluss. */ ?>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-outline-vdst" name="aktion" value="entwurf">Entwurf speichern</button>
+        <button type="submit" class="btn btn-vdst" name="aktion" value="abschliessen"
+                data-confirm="Auszählung wirklich abschließen? Danach sind alle Buchungen bis zum Stichtag eingefroren.">Abschließen</button>
+    </div>
+    <div class="form-text">Zum Abschließen muss für jeden Artikel ein Ist-Wert eingetragen sein.</div>
 </form>
 <?= $this->endSection() ?>
 

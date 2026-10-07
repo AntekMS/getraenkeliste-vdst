@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace Tests\Database;
 
 use App\Libraries\AuszaehlungAbgelehnt;
+use App\Libraries\AuszaehlungExport;
 use App\Libraries\AuszaehlungService;
+use App\Libraries\BuchungAbgelehnt;
+use CodeIgniter\Config\Services;
 use DateTimeImmutable;
 use DateTimeZone;
+use RuntimeException;
 use Tests\Support\DbTestCase;
 
 /**
@@ -17,6 +21,7 @@ final class AuszaehlungServiceTest extends DbTestCase
 {
     private int $bereich;
     private int $person;
+    private string $basis;
 
     protected function setUp(): void
     {
@@ -26,6 +31,21 @@ final class AuszaehlungServiceTest extends DbTestCase
         $this->uhrStellen('2026-10-10 12:00:00');
         $this->bereich = $this->bereichId('getraenke');
         $this->person  = $this->personAnlegen();
+        $this->basis   = sys_get_temp_dir() . '/gl-abschluss-' . bin2hex(random_bytes(6)) . '/';
+        Services::injectMock('auszaehlungExport', new AuszaehlungExport($this->basis));
+    }
+
+    protected function tearDown(): void
+    {
+        foreach (glob($this->basis . 'exporte/{,.}*', GLOB_BRACE) ?: [] as $datei) {
+            if (is_file($datei)) {
+                unlink($datei);
+            }
+        }
+
+        @rmdir($this->basis . 'exporte');
+        @rmdir($this->basis);
+        parent::tearDown();
     }
 
     private function zeit(string $z): DateTimeImmutable
@@ -224,5 +244,229 @@ final class AuszaehlungServiceTest extends DbTestCase
         foreach ([$a, $b] as $artikel) {
             $this->assertSame(service('bestand')->einzeln($artikel), $v[$artikel]['soll'], "Artikel {$artikel}");
         }
+    }
+
+    // --- Abschluss (Task 9) ---
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function kopfVon(int $id): array
+    {
+        return db_connect()->table('auszaehlungen')->where('id', $id)->get()->getRowArray();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function positionenVon(int $id): array
+    {
+        return array_column(db_connect()->table('auszaehlung_positionen')->where('auszaehlung_id', $id)->get()->getResultArray(), null, 'artikel_id');
+    }
+
+    public function test_abschluss_schliesst_ab_schreibt_positionen_datei_und_protokoll(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $this->bewegung($a, 'lieferung', 10, '2026-10-02 00:00:00');
+        $this->buchung($a, 3, '2026-10-05 12:00:00');
+
+        $id = (new AuszaehlungService())->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:45'), [$a => 6], ' Erste ');
+
+        $kopf = $this->kopfVon($id);
+        $this->assertSame('abgeschlossen', $kopf['status']);
+        $this->assertSame('start', $kopf['art']);
+        $this->assertSame('2026-10-09 10:00:00', $kopf['stichtag']);
+        $this->assertSame('2026-10-01 00:00:00', $kopf['zeitraum_von']);
+        $this->assertSame('2026-10-10 12:00:00', $kopf['abgeschlossen_at']);
+        $this->assertSame('Erste', $kopf['bemerkung']);
+        $this->assertSame($this->person, (int) $kopf['erstellt_von_id']);
+        $this->assertSame('exporte/Auszaehlung_getraenke_2026-10-01_bis_2026-10-09.xlsx', $kopf['datei_pfad']);
+        $this->assertFileExists($this->basis . $kopf['datei_pfad']);
+
+        $p = $this->positionenVon($id)[$a];
+        $this->assertSame(7, (int) $p['soll']);
+        $this->assertSame(6, (int) $p['ist']);
+        $this->assertSame(-1, (int) $p['differenz']);
+
+        $this->seeInDatabase('protokoll', ['person_id' => $this->person, 'aktion' => 'abgeschlossen', 'tabelle' => 'auszaehlungen', 'datensatz_id' => $id]);
+        $this->assertEquals($this->zeit('2026-10-09 10:00:00'), service('zeitraeume')->letzterStichtag($this->bereich), 'Cache nach dem Abschluss geleert');
+        $this->assertFalse((new AuszaehlungService())->dateiFehlt($id));
+    }
+
+    public function test_entwurf_wird_beim_abschluss_zur_abgeschlossenen_auszaehlung_und_soll_neu_berechnet(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $this->bewegung($a, 'lieferung', 10, '2026-10-02 00:00:00');
+        $service = new AuszaehlungService();
+        $entwurf = $service->speichereEntwurf($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 6], null);
+        $this->assertSame(10, (int) $this->positionenVon($entwurf)[$a]['soll']);
+
+        // Zwischen Entwurf und Abschluss vor dem Stichtag gebucht (Review Focus 5); eine Buchung nach dem Stichtag zählt nicht.
+        $this->buchung($a, 3, '2026-10-08 12:00:00');
+        $this->buchung($a, 2, '2026-10-09 10:00:01');
+
+        $wart = $this->personAnlegen();
+        $id   = $service->schliesseAb($this->bereich, $wart, $this->zeit('2026-10-09 10:00:00'), [$a => 6], null);
+
+        $this->assertSame($entwurf, $id);
+        $this->assertSame(1, db_connect()->table('auszaehlungen')->countAllResults());
+        $p = $this->positionenVon($id)[$a];
+        $this->assertSame(3, (int) $p['verkauft']);
+        $this->assertSame(7, (int) $p['soll']);
+        $this->assertSame(6, (int) $p['ist']);
+        $this->assertSame(-1, (int) $p['differenz']);
+        $this->assertSame($wart, (int) $this->kopfVon($id)['erstellt_von_id']);
+    }
+
+    public function test_abschluss_verlangt_ist_fuer_jeden_artikel(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $b = $this->artikelAnlegen(['name' => 'Dunkles', 'bestand_fuehren' => 1]);
+
+        try {
+            (new AuszaehlungService())->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 1, $b => null], null);
+            $this->fail('Erwartet: Ablehnung');
+        } catch (AuszaehlungAbgelehnt $e) {
+            $this->assertSame('Bitte für jeden Artikel einen Ist-Wert eintragen.', $e->getMessage());
+            $this->assertSame(["ist.{$b}" => AuszaehlungService::MELDUNG_IST_FEHLT], $e->fehler);
+        }
+
+        $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
+    }
+
+    public function test_zweite_auszaehlung_nur_mit_spaeterem_stichtag_und_regulaer(): void
+    {
+        $a       = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $service = new AuszaehlungService();
+        $erste   = $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-08 10:00:00'), [$a => 4], null);
+
+        try {
+            $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-08 10:00:00'), [$a => 4], null);
+            $this->fail('Erwartet: Ablehnung');
+        } catch (AuszaehlungAbgelehnt $e) {
+            $this->assertSame('Der Stichtag muss nach dem letzten Abschluss liegen.', $e->getMessage());
+        }
+
+        $zweite = $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 3], null);
+
+        $this->assertSame('start', $this->kopfVon($erste)['art']);
+        $kopf = $this->kopfVon($zweite);
+        $this->assertSame('regulaer', $kopf['art']);
+        $this->assertSame('2026-10-08 10:00:00', $kopf['zeitraum_von']);
+        $p = $this->positionenVon($zweite)[$a];
+        $this->assertSame(4, (int) $p['anfangsbestand']);
+        $this->assertSame(0, (int) $p['start']);
+    }
+
+    public function test_abschluss_friert_ein_mitglieds_storno_vor_dem_stichtag_wird_abgelehnt(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $v = '7d6a4f0e-3c1b-4a55-9e0d-2b8f6c1a9d42';
+        $this->uhrStellen('2026-10-10 11:59:00');
+        service('buchungen')->bucheVorgang($v, $this->person, $this->person, null, 'web', [['artikel_id' => $a, 'menge' => 1]]);
+        $this->uhrStellen('2026-10-10 12:00:00');
+
+        (new AuszaehlungService())->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-10 12:00:00'), [$a => 0], null);
+
+        $this->expectException(BuchungAbgelehnt::class);
+        $this->expectExceptionMessage('Dieser Zeitraum ist abgeschlossen.');
+        service('buchungen')->storniereVorgang($v, $this->person);
+    }
+
+    public function test_buchung_im_selben_moment_nach_dem_abschluss_wird_abgelehnt(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        (new AuszaehlungService())->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-10 12:00:00'), [$a => 0], null);
+
+        $this->expectException(BuchungAbgelehnt::class);
+        $this->expectExceptionMessage('Dieser Zeitraum ist abgeschlossen. Nicht gebucht.');
+        service('buchungen')->bucheVorgang('7d6a4f0e-3c1b-4a55-9e0d-2b8f6c1a9d43', $this->person, $this->person, null, 'web', [['artikel_id' => $a, 'menge' => 1]]);
+    }
+
+    public function test_excel_fehler_laesst_die_auszaehlung_abgeschlossen_und_neu_erzeugen_hilft(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        Services::injectMock('auszaehlungExport', new class ($this->basis) extends AuszaehlungExport {
+            public function erzeuge(int $auszaehlungId): string
+            {
+                throw new RuntimeException('Platte voll');
+            }
+        });
+        $service = new AuszaehlungService();
+
+        $id = $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 2], null);
+
+        $kopf = $this->kopfVon($id);
+        $this->assertSame('abgeschlossen', $kopf['status']);
+        $this->assertNull($kopf['datei_pfad']);
+        $this->assertTrue($service->dateiFehlt($id));
+        $this->assertEquals($this->zeit('2026-10-09 10:00:00'), service('zeitraeume')->letzterStichtag($this->bereich));
+
+        Services::injectMock('auszaehlungExport', new AuszaehlungExport($this->basis));
+        $pfad = $service->dateiNeuErzeugen($id, $this->person);
+
+        $this->assertSame($pfad, $this->kopfVon($id)['datei_pfad']);
+        $this->assertFileExists($this->basis . $pfad);
+        $this->assertFalse($service->dateiFehlt($id));
+        $this->seeInDatabase('protokoll', ['person_id' => $this->person, 'aktion' => 'datei_erzeugt', 'tabelle' => 'auszaehlungen', 'datensatz_id' => $id]);
+    }
+
+    public function test_neu_erzeugen_eines_entwurfs_wird_abgelehnt(): void
+    {
+        $id = (new AuszaehlungService())->speichereEntwurf($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [], null);
+
+        $this->expectException(RuntimeException::class);
+        (new AuszaehlungService())->dateiNeuErzeugen($id, $this->person);
+    }
+
+    public function test_abschluss_bei_gesperrtem_bereich_liefert_deutsche_meldung(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+
+        $this->beiGesperrtemBereich($this->bereich, function () use ($a): void {
+            try {
+                (new AuszaehlungService())->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 1], null);
+                $this->fail('Erwartet: Ablehnung');
+            } catch (AuszaehlungAbgelehnt $e) {
+                $this->assertSame('Gerade wird abgerechnet – bitte gleich erneut versuchen.', $e->getMessage());
+            }
+        });
+
+        $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
+    }
+
+    /**
+     * Review Focus 1: Während der Abschluss den Bereich hält, muss jeder andere Schreiber (der zuerst den Bereich sperrt)
+     * warten – hier eine zweite Verbindung mit Lock-Wait-Timeout 1 s. Was vor der Sperre committet war, zählt im Soll.
+     */
+    public function test_abschluss_haelt_die_bereichssperre_und_zaehlt_vorher_committete_buchungen(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $this->bewegung($a, 'lieferung', 10, '2026-10-02 00:00:00');
+        $this->buchung($a, 4, '2026-10-09 09:59:59');
+
+        $service = new class () extends AuszaehlungService {
+            public ?\Throwable $fehler = null;
+
+            protected function nachDerSperre(int $bereichId): void
+            {
+                $zweite = \Config\Database::connect('tests', false);
+
+                try {
+                    $zweite->query('SET SESSION innodb_lock_wait_timeout = 1');
+                    $zweite->query('SELECT id FROM bereiche WHERE id = ? FOR UPDATE', [$bereichId]);
+                } catch (\Throwable $e) {
+                    $this->fehler = $e;
+                } finally {
+                    $zweite->close();
+                }
+            }
+        };
+
+        $id = $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 6], null);
+
+        $this->assertNotNull($service->fehler, 'Die zweite Verbindung hätte warten müssen');
+        $this->assertStringContainsString('Lock wait timeout', $service->fehler->getMessage());
+        $this->assertSame(6, (int) $this->positionenVon($id)[$a]['soll']);
     }
 }
