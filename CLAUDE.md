@@ -113,6 +113,13 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   abgeschlossenen Auszählung; archivierte nur mit Aktivität), `speichereEntwurf` (höchstens ein Entwurf je Bereich, Positionen werden ersetzt, Soll als Momentaufnahme, `ist` NULL = ungezählt; Bereichssperre zuerst,
   Stichtag frisch geprüft, 1205/1213 → „Gerade wird abgerechnet …“; fachliche Fehler = `AuszaehlungAbgelehnt` mit Feldfehlern `stichtag`/`ist.<id>`). Stichtag-Eingabe `datetime-local` (Minutengenauigkeit),
   Bemerkung ≤ 1000 Zeichen, Array-Parameter zählen als leer. „Stichtag übernehmen“ = GET `?stichtag=` (lädt das Soll neu; getippte Ist-Werte gehen verloren, gespeicherte Entwurfswerte bleiben sichtbar). Das versteckte Feld im POST-Formular gilt; JS zeigt nur einen Hinweis bei abweichendem Datum.
+- Excel-Export (Stufe 2, Task 8): `Libraries/AuszaehlungExport` (Service `auszaehlungExport()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`; Tests nutzen ein Temp-Verzeichnis):
+  `erzeuge(auszaehlungId)` → relativer Pfad `exporte/Auszaehlung_<bereich>_<von>_bis_<bis>.xlsx` (Suffix `_<id>`, wenn **eine andere Auszählung** den Namen in `datei_pfad` hat), nur für
+  abgeschlossene (sonst `RuntimeException`), schreibt `datei_pfad` **nicht** (macht Task 9). Zeitraum = (`zeitraum_von`, `stichtag`], inklusiv nur ohne frühere abgeschlossene Auszählung des Bereichs.
+  Liest nur gespeicherte Daten (Meta `erstellt_am` = `abgeschlossen_at`) → Neu-Erzeugen liefert identische Zellwerte. Blätter/Spalten/Meta-Schlüssel exakt Spec 8.2 (`format_version` = `getraenkeliste-auszaehlung/1`,
+  bei Änderungen erhöhen). Alle Zellen per `setCellValueExplicit` (Text mit „=“ wird nie Formel), Datum als Excel-Seriennummer `yyyy-mm-dd hh:mm`, Beträge = Cent-Summe/100 mit `0.00`,
+  Geldsummen in SQL mit `CAST(einzelpreis_cent AS SIGNED)`. Datenblatt = Excel-`Table` (`Tabelle_<Blatt>`); ohne Datenzeilen nur AutoFilter auf der Kopfzeile (Table braucht ≥ 1 Datenzeile).
+  `Statistik` mit Säulendiagramm (Writer `setIncludeCharts(true)`); Schreiben in `.…tmp` im Zielordner, dann `rename`.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;

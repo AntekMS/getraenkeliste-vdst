@@ -3,6 +3,7 @@
 namespace Config;
 
 use App\Libraries\Anmeldung;
+use App\Libraries\AuszaehlungExport;
 use App\Libraries\AuszaehlungService;
 use App\Libraries\BestandService;
 use App\Libraries\BuchungService;
@@ -15,7 +16,7 @@ use CodeIgniter\Config\BaseService;
 
 /**
  * Anwendungsspezifische Services: `uhr` (einzige Quelle für „jetzt“),
- * `einstellungen`, `zeitraeume` (beide je Request gecacht) und `protokollierer`.
+ * `einstellungen`, `zeitraeume` (beide je Request gecacht), `protokollierer` und `auszaehlungExport`.
  */
 class Services extends BaseService
 {
@@ -89,6 +90,15 @@ class Services extends BaseService
         }
 
         return new AuszaehlungService();
+    }
+
+    public static function auszaehlungExport(bool $getShared = true): AuszaehlungExport
+    {
+        if ($getShared) {
+            return static::getSharedInstance('auszaehlungExport');
+        }
+
+        return new AuszaehlungExport();
     }
 
     public static function zeitraeume(bool $getShared = true): Zeitraeume
