@@ -247,3 +247,22 @@ tests/feature/{WartBestandTest,WartBewegungenTest,WartBuchungenTest,WartAuszaehl
 - [ ] **Step 2:** FAIL. **Step 3:** implementieren. **Step 4:** gesamte Suite grün (allein laufen lassen).
 - [ ] **Step 5: Doku:** CLAUDE.md-Landkarte (Wart-Bereich, Zeiträume/Einfrieren/Bereichssperre, Export-Regeln), README (Stufe 2 Funktionen, erste Start-Auszählung als Inbetriebnahme-Schritt 4), DEPLOY-PI.md.
 - [ ] **Step 6: Commit** – `"Erinnerung an Auszählung, Doku Stufe 2"`
+
+---
+
+### Task 11 (Nachtrag, Nutzerwunsch): Artikelbilder
+
+**Files:**
+- Create: Migration `2026-10-07-000001_Artikelbild.php` (`artikel.bild_datei` VARCHAR(64) NULL, `artikel.bild_version` INT UNSIGNED NOT NULL DEFAULT 0), `app/Libraries/Artikelbild.php` (Service `artikelbild()`), `app/Controllers/ArtikelbildController.php`, `tests/unit/ArtikelbildTest.php` (reine Teile), `tests/feature/ArtikelbildTest.php`
+- Modify: `app/Controllers/Admin/StammdatenController.php` + `app/Views/admin/stammdaten/artikel_formular.php` (Datei-Feld, Vorschau, Checkbox „Bild entfernen“, Formular `enctype="multipart/form-data"`), `app/Models/ArtikelModel.php` (`buchbar()` liefert `bild_url`), `app/Views/buchen/_artikel.php` (Bild in der Kachel, sonst unverändert), `public/css/app.css` (Block `/* Getränkeliste */`: `.artikel-bild` mit festem Seitenverhältnis, `object-fit: cover`), `app/Config/Routes.php`, `tests/feature/ZugriffsschutzTest.php`, `scripts/backup.sh` + `scripts/restore.sh` (Ordner `writable/artikelbilder/` sichern/zurückspielen, Archiv `artikelbilder_<datum>.tar.gz`), `.gitignore`, `docs/BACKUP.md`, `CLAUDE.md`, Spec Abschnitt 6 (`artikel`-Spalten) und 7.1/7.6 (ein Satz)
+
+**Interfaces:**
+- `Artikelbild::speichere(int $artikelId, string $tmpPfad, int $groesseBytes): string` – prüft Größe (≤ 5 MB, sonst `"Das Bild ist zu groß (max. 5 MB)."`), echten Typ per `finfo` (nur `image/jpeg|png|webp`, sonst `"Bitte ein JPG-, PNG- oder WebP-Bild hochladen."`), lädt mit GD, skaliert proportional auf max. 600 px Kantenlänge (nie vergrößern), speichert **neu codiert** (JPEG Qualität 85; PNG nur bei vorhandener Transparenz) unter Zufallsnamen `bin2hex(random_bytes(16))` + Endung in `writable/artikelbilder/` (Metadaten fallen durch das Neucodieren weg), löscht die alte Datei, erhöht `bild_version`; gibt den Dateinamen zurück. Schreiben erst in Temp-Datei, dann `rename`.
+- `Artikelbild::entferne(int $artikelId): void`; `Artikelbild::url(array $artikel): ?string` → `artikelbild/<id>?v=<bild_version>` oder null.
+- `GET artikelbild/(:num)` (Filter: `angemeldet` **oder** gültiges Tablet – eigene kleine Prüfung über `anmeldung()->person()` bzw. `geraete()`; sonst 403): liefert die Datei mit korrektem `Content-Type`, `Cache-Control: private, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`; Dateiname nur aus der DB, nie aus dem Request; fehlend → 404.
+- Admin-Formular: Upload nur mit Recht `admin` (wie Stammdaten); Protokoll `bild_geaendert` / `bild_entfernt` (ohne Dateiinhalt). Archivierte Artikel behalten ihr Bild und es bleibt abrufbar; die Buchungsseite zeigt archivierte Artikel ohnehin nicht.
+- Buchungskachel (Web und Tablet): Bild oben (`<img loading="lazy" alt="">`, dekorativ, Name steht als Text), ohne Bild unverändertes Layout.
+
+- [ ] **Step 1: Failing tests:** Unit: Skalierungsberechnung (1200×800 → 600×400, 300×300 bleibt); Feature: Upload eines erzeugten PNG (GD im Test) → Datei existiert, Ausgabe ≤ 600 px, `bild_version` erhöht, Protokoll; falscher Typ (Textdatei mit `.jpg`-Endung) → Fehler, nichts gespeichert; > 5 MB → Fehler; Bild entfernen löscht Datei; `GET artikelbild/{id}` für Mitglied 200 mit `image/*`, anonym 403, Tablet-Cookie 200; Buchungsseite enthält `artikelbild/<id>?v=`; Backup-Skript enthält den Ordner (Shellcheck sauber, lokaler Lauf erzeugt `artikelbilder_*.tar.gz`).
+- [ ] **Step 2:** FAIL. **Step 3:** implementieren. **Step 4:** PASS, gesamte Suite.
+- [ ] **Step 5: Commit** – `"Artikelbilder hochladen und auf den Kacheln anzeigen"`

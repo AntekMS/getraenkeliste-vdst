@@ -154,7 +154,12 @@ final class WartAuszaehlungTest extends DbTestCase
         $antwort = $this->sende(['stichtag' => '2026-10-09T08:00', 'ist' => [], 'bemerkung' => str_repeat('a', 1001)]);
 
         $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
-        $antwort->assertSessionHas('fehler');
+        $meldung = 'Die Bemerkung ist zu lang (höchstens 1000 Zeichen).';
+        $antwort->assertSessionHas('fehler', ['bemerkung' => $meldung]);
         $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
+
+        $seite = $this->withSession([...$this->angemeldeteSitzung($this->wart), 'fehler' => ['bemerkung' => $meldung], '__ci_vars' => ['fehler' => 'new']])->get('wart/getraenke/auszaehlung');
+        $this->assertStringContainsString('Die Bemerkung ist zu lang (h', $seite->getBody());
+        $this->assertStringContainsString('is-invalid', $seite->getBody());
     }
 }

@@ -82,7 +82,8 @@ $altIst        = old('ist');
 
     <div class="mb-3 mt-3">
         <label for="bemerkung" class="form-label">Bemerkung (optional)</label>
-        <textarea class="form-control" id="bemerkung" name="bemerkung" rows="2"><?= esc($bemerkung) ?></textarea>
+        <textarea class="form-control<?= $feld('bemerkung') ?>" id="bemerkung" name="bemerkung" rows="2" maxlength="1000"><?= esc($bemerkung) ?></textarea>
+        <?= $meldung('bemerkung') ?>
     </div>
 
     <button type="submit" class="btn <?= $entwurfKlasse ?>">Entwurf speichern</button>
