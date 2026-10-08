@@ -89,4 +89,26 @@ final class StatistikRechnerTest extends CIUnitTestCase
         $this->assertSame(['2026-W41', '2026-W42', '2026-W43', '2026-W44'], $wochen);
         $this->assertSame('2026-W43', StatistikRechner::isoWoche($this->tag('2026-10-25')));
     }
+
+    public function test_grundlage_tage_zukunft_und_zeitumstellung(): void
+    {
+        $this->assertSame(1, StatistikRechner::grundlageTage($this->tag('2026-10-10 10:00:00'), $this->tag('2026-10-01 10:00:00')));
+        $this->assertSame(2, StatistikRechner::grundlageTage($this->tag('2026-10-24 18:00:00'), $this->tag('2026-10-26 09:00:00')));
+    }
+
+    public function test_vorschlag_ohne_gleitkomma_rauschen(): void
+    {
+        $verbrauch = StatistikRechner::tagesverbrauch(3, 10);
+
+        $this->assertSame(['stueck' => 9, 'kisten' => null], StatistikRechner::vorschlag($verbrauch, 30, 0, 0, null));
+        $this->assertSame(['stueck' => 9, 'kisten' => 1], StatistikRechner::vorschlag($verbrauch, 30, 0, 0, 9));
+        $this->assertSame(['stueck' => 18, 'kisten' => 2], StatistikRechner::vorschlag(0.6, 30, 0, 0, 9));
+        $this->assertSame(['stueck' => 21, 'kisten' => null], StatistikRechner::vorschlag(0.7, 30, 0, 0, null));
+    }
+
+    public function test_letzte_wochen_um_die_zeitumstellung(): void
+    {
+        $this->assertSame(['2026-W42', '2026-W43'], StatistikRechner::letzteWochen($this->tag('2026-10-25 23:30:00'), 2));
+        $this->assertSame(['2026-W43', '2026-W44'], StatistikRechner::letzteWochen($this->tag('2026-10-26 00:30:00'), 2));
+    }
 }

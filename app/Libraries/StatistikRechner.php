@@ -18,7 +18,9 @@ final class StatistikRechner
      */
     public static function grundlageTage(DateTimeImmutable $inbetriebnahme, DateTimeImmutable $jetzt): int
     {
-        $tage = (int) $inbetriebnahme->setTime(0, 0)->diff($jetzt->setTime(0, 0))->days;
+        $von = $inbetriebnahme->setTime(0, 0);
+        $bis = $jetzt->setTime(0, 0);
+        $tage = $bis < $von ? 0 : (int) $von->diff($bis)->days;
 
         return max(1, min(self::MAX_GRUNDLAGE_TAGE, $tage));
     }
@@ -46,7 +48,8 @@ final class StatistikRechner
      */
     public static function vorschlag(float $tagesverbrauch, int $reichweiteTage, int $mindestbestand, int $bestand, ?int $gebinde): ?array
     {
-        $bedarf = (int) ceil($tagesverbrauch * $reichweiteTage + $mindestbestand - $bestand);
+        // round() fängt Gleitkomma-Rauschen ab (0.3 × 30 darf nicht 9.000000000000002 → 10 ergeben).
+        $bedarf = (int) ceil(round($tagesverbrauch * $reichweiteTage + $mindestbestand - $bestand, 6));
 
         if ($bedarf <= 0) {
             return null;
