@@ -66,6 +66,8 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   `inbetriebnahme`, `setze` → Fehlertext|null, protokolliert alt/neu) lädt die Werte je Request einmal.
   `Protokollierer::schreibe` entfernt oberste-Ebene-Schlüssel auf `_hash`, speichert JSON ohne
   Unicode-Escapes (MySQL normalisiert beim Lesen zu `{"wert": "10"}` → in Tests dekodiert vergleichen).
+- Statistik (Task 1): `StatistikRechner` (statisch, rein: `grundlageTage` = Kalendertage Inbetriebnahme→jetzt, 1..28; `tagesverbrauch`, `reichweiteTage`, `vorschlag` (⌈Verbrauch×Reichweite+Mindest−Bestand⌉, Kisten bei Gebinde > 0),
+  `anteile`, `quote`, `isoWoche` (`o-\WW`), `letzteWochen` (ab Montag der laufenden Woche per `modify`, älteste zuerst)); Einstellung `reichweite_tage` (7–90, Default 30, Migration 2026-10-09-000001, in `EinstellungDefinition`).
 - Stufe 2, reine Rechenklassen (statisch, ohne DB): `BestandRechner` (Bestand, Ampel negativ>leer>niedrig>ok),
   `AuszaehlungRechner` (Position/Soll/Differenz, `schwundCent` = positiver Betrag ohne Start-Positionen, `pruefeStichtag`),
   `Lieferumrechnung` (Kisten × Gebinde + Stück).

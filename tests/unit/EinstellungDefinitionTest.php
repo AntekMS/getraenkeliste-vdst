@@ -34,6 +34,15 @@ final class EinstellungDefinitionTest extends CIUnitTestCase
         $this->assertNull(EinstellungDefinition::validiere('vereinsname', 'Verein'));
     }
 
+    public function test_reichweite_tage(): void
+    {
+        $this->assertIsString(EinstellungDefinition::validiere('reichweite_tage', '6'));
+        $this->assertNull(EinstellungDefinition::validiere('reichweite_tage', '7'));
+        $this->assertNull(EinstellungDefinition::validiere('reichweite_tage', '90'));
+        $this->assertIsString(EinstellungDefinition::validiere('reichweite_tage', '91'));
+        $this->assertSame('30', EinstellungDefinition::DEFINITIONEN['reichweite_tage']['default']);
+    }
+
     public function test_unbekannter_schluessel_ist_fehler(): void
     {
         $this->assertIsString(EinstellungDefinition::validiere('gibt_es_nicht', '1'));

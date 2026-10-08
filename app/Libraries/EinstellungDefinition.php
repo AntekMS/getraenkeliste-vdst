@@ -15,6 +15,7 @@ final class EinstellungDefinition
         'tablet_timeout_s'  => ['label' => 'Tablet-Timeout (Sekunden)', 'typ' => 'int', 'min' => 10, 'max' => 300, 'default' => '30', 'aenderbar' => true],
         'vereinsname'       => ['label' => 'Vereinsname', 'typ' => 'text', 'min' => 1, 'max' => 100, 'default' => 'Verein deutscher Studenten zu Erlangen', 'aenderbar' => true],
         'erinnerung_tage'   => ['label' => 'Erinnerung nach (Tagen)', 'typ' => 'int', 'min' => 1, 'max' => 365, 'default' => '31', 'aenderbar' => true],
+        'reichweite_tage'   => ['label' => 'Bestellreichweite (Tage)', 'typ' => 'int', 'min' => 7, 'max' => 90, 'default' => '30', 'aenderbar' => true],
         'inbetriebnahme_at' => ['label' => 'Inbetriebnahme', 'typ' => 'datum', 'default' => '', 'aenderbar' => false],
     ];
 

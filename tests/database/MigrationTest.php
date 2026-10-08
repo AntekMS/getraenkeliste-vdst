@@ -51,6 +51,7 @@ final class MigrationTest extends DbTestCase
 
         $this->assertEqualsCanonicalizing(array_keys(EinstellungDefinition::DEFINITIONEN), array_keys($werte));
         $this->assertSame('10', $werte['storno_frist_min']);
+        $this->assertSame('30', $werte['reichweite_tage']);
         $this->assertNotFalse(strtotime($werte['inbetriebnahme_at']));
     }
 
