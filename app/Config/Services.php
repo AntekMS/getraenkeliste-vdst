@@ -11,13 +11,14 @@ use App\Libraries\BuchungService;
 use App\Libraries\Einstellungen;
 use App\Libraries\Geraete;
 use App\Libraries\Protokollierer;
+use App\Libraries\StatistikService;
 use App\Libraries\Uhr;
 use App\Libraries\Zeitraeume;
 use CodeIgniter\Config\BaseService;
 
 /**
  * Anwendungsspezifische Services: `uhr` (einzige Quelle für „jetzt“),
- * `einstellungen`, `zeitraeume` (beide je Request gecacht), `protokollierer`, `auszaehlungExport` und `artikelbild`.
+ * `einstellungen`, `zeitraeume` (beide je Request gecacht), `protokollierer`, `auszaehlungExport`, `artikelbild` und `statistik`.
  */
 class Services extends BaseService
 {
@@ -118,5 +119,14 @@ class Services extends BaseService
         }
 
         return new Artikelbild();
+    }
+
+    public static function statistik(bool $getShared = true): StatistikService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('statistik');
+        }
+
+        return new StatistikService();
     }
 }

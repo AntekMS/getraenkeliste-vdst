@@ -68,6 +68,13 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   Unicode-Escapes (MySQL normalisiert beim Lesen zu `{"wert": "10"}` → in Tests dekodiert vergleichen).
 - Statistik (Task 1): `StatistikRechner` (statisch, rein: `grundlageTage` = Kalendertage Inbetriebnahme→jetzt, 1..28; `tagesverbrauch`, `reichweiteTage`, `vorschlag` (⌈Verbrauch×Reichweite+Mindest−Bestand⌉, Kisten bei Gebinde > 0),
   `anteile`, `quote`, `isoWoche` (`o-\WW`), `letzteWochen` (ab Montag der laufenden Woche per `modify`, älteste zuerst)); Einstellung `reichweite_tage` (7–90, Default 30, Migration 2026-10-09-000001, in `EinstellungDefinition`).
+- Statistik (Task 2): `Libraries/StatistikService` (Service `statistik()`), je Methode wenige Aggregatabfragen, keine Abfrage je Artikel. `einkauf(bereichId)` = `bestand()->fuerBereich`
+  (Bestand/Ampel unverändert) + `gebinde_groesse`, `tagesverbrauch`, `reichweite`, `vorschlag`, `letzter_ek_cent` (jüngste Lieferung mit Preis, `ROW_NUMBER()`), dazu `grundlage_tage`/`reichweite_tage`.
+  **Verbrauch** (28 Tage = (jetzt − 28 days, jetzt] per `modify`, und Wochen) = nicht stornierte Buchungen mit `bestandswirksam = 1`; **Anteile** (`anteile(bereich, von, vonInklusiv, bis)`,
+  Menge + Cent mit `CAST … AS SIGNED`, Schlüssel `mitglieder`/`couleur`/`bund` über `sammelkontoId`) = alle nicht stornierten Buchungen inkl. nicht bestandswirksamer Korrekturen.
+  `wochenverbrauch(bereich, ansicht, wochen)` bucketet in SQL mit `DATE_FORMAT(gebucht_at, '%x-W%v')` (= `isoWoche`, Test über den Jahreswechsel), fehlende Wochen 0; `ansicht` `alle` (je nicht archivierter
+  Kategorie eine Reihe über alle ihre Artikel), `kategorie:<id>` (je Artikel eine Reihe „Name (Einheit)“, archivierte nur mit Verbrauch), `artikel:<id>` (eine Reihe); bereichsfremd/ungültig → `alle`,
+  Ergebnis-Schlüssel `ansicht` = tatsächlich verwendete Ansicht. `lieferhistorie(bereich, anzahl)` gruppiert nach (`erfolgt_at`, `person_id`), neueste zuerst, `erfasst_von` = Anzeigename.
 - Stufe 2, reine Rechenklassen (statisch, ohne DB): `BestandRechner` (Bestand, Ampel negativ>leer>niedrig>ok),
   `AuszaehlungRechner` (Position/Soll/Differenz, `schwundCent` = positiver Betrag ohne Start-Positionen, `pruefeStichtag`),
   `Lieferumrechnung` (Kisten × Gebinde + Stück).
