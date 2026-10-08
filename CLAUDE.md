@@ -48,7 +48,8 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   000004 `geraete`/`freischaltcodes`, 000005 Startdaten (Bereiche `getraenke` aktiv / `kiosk`
   inaktiv, Sammelkonten Couleur/Bund, Einstellungs-Defaults, `inbetriebnahme_at` = jetzt),
   Stufe 2: 2026-10-06-000001 Bestand (`buchungen.bemerkung`, `bestandsbewegungen`, `auszaehlungen`,
-  `auszaehlung_positionen` mit `start`-Flag und `ist` NULL im Entwurf).
+  `auszaehlung_positionen` mit `start`-Flag und `ist` NULL im Entwurf), 2026-10-07-000001 Artikelbild (`artikel.bild_datei` VARCHAR(64) NULL,
+  `artikel.bild_version` INT UNSIGNED DEFAULT 0).
   Raw-SQL, InnoDB, utf8mb4_unicode_ci, FKs `ON DELETE RESTRICT`. Migrationen referenzieren
   **keine** App-Klassen (Konstanten werden wiederholt; `MigrationTest` prüft sie gegen die App).
 - `app/Models/` — CI4-Models (`array`, `$useTimestamps`): `PersonModel` (`rollen`,
@@ -140,6 +141,20 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   je **aktivem** Bereich mit Recht `auszaehlung_durchfuehren` und `tageSeitLetztemAbschluss` (volle Kalendertage ab Stichtag, sonst Inbetriebnahme, via `uhr`) > `erinnerung_tage`
   ein `.alert-warning` (ohne Auto-Dismiss) „Die letzte Auszählung ist <n> Tage her.“ bzw. „Es gab noch keine Auszählung.“ + Link `wart/<bereich>/auszaehlung`.
   Ohne das Recht (Mitglieder) entsteht keine DB-Abfrage. `public/js/app.js`: `data-confirm`: Rückfrage im Klick, Knopfsperre (Spinner) erst im `submit`-Ereignis (`event.submitter`, nur wenn das Absenden weiterläuft, also nach der Browser-Validierung), `pageshow` mit `persisted` gibt gesperrte Knöpfe wieder frei; Cache-Buster `app.js?v=5` (in `layouts/main.php` und `einfach.php`).
+- Artikelbilder (Stufe 2, Task 11): `Libraries/Artikelbild` (Service `artikelbild()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`, Dateien in
+  `<basis>/artikelbilder/`; Tests injizieren ein Temp-Verzeichnis per `Services::injectMock`). `pruefe` (≤ 5 MB „Das Bild ist zu groß (max. 5 MB).“, Typ per `finfo`
+  nur JPEG/PNG/WebP, `getimagesize` ≤ 8000 × 8000 und MIME muss passen, sonst „Bitte ein JPG-, PNG- oder WebP-Bild hochladen.“), `schreibe` (GD laden, `memory_limit` bei
+  Bedarf auf 512M, auf ≤ 600 px verkleinern (`zielgroesse`, nie vergrößern), JPEG-EXIF-Drehung 3/6/8 anwenden, **immer neu codiert**: JPEG q85, PNG nur bei echter
+  Transparenz (Pixel-Scan nach dem Verkleinern), Name `bin2hex(random_bytes(16))`.jpg/.png, Temp-Datei + `rename`), `uebernehme(artikelId, ?datei, personId)` (in einer
+  Transaktion: `SELECT … FOR UPDATE`, setzt `bild_datei`, `bild_version + 1`, Protokoll `bild_geaendert`/`bild_entfernt` mit `neu = {bild_version}`, liefert die alte Datei),
+  `wechsle(neueDatei, arbeit)` (Artikel-Transaktion; Fehler → neue Datei löschen, alte erst nach dem Commit), `speichere`/`entferne` (Kurzformen), `pfad` (nur Namen
+  `[0-9a-f]{32}.(jpg|png)` und vorhandene Datei), statisch `url(artikel)` → `artikelbild/<id>?v=<version>` oder null. Admin-Formular (`StammdatenController`, `multipart/form-data`,
+  Feld `bild`, Checkbox `bild_entfernen`, Vorschau): Felder zuerst prüfen, dann Bild schreiben, dann eine Transaktion für Felder + Bild; Bildfehler als Flash `fehler['bild']`;
+  neues Bild schlägt „entfernen“. Route `GET artikelbild/(:num)` (`ArtikelbildController`, Filter **`bild`** = `BildFilter`: Session-Person **oder** gültiges, nicht gesperrtes
+  Geräte-Cookie über `Geraete::istGueltigesToken` (nur lesend), sonst 403 ohne Redirect); Antwort mit `Cache-Control: private, max-age=31536000, immutable` (vorher
+  `removeHeader`, sonst hängt CI an `no-store` an), `nosniff`, `inline`; fehlende Datei/kein Bild → 404; archivierte Artikel behalten ihr Bild. `ArtikelModel::buchbar` liefert
+  `bild_url`, `buchen/_artikel.php` zeigt `<img class="artikel-bild" … alt="" loading="lazy">` (CSS 4:3, `object-fit: cover`; `app.css?v=4`). Dockerfile: GD mit
+  `--with-webp` (`libwebp-dev`) und Erweiterung `exif` – Image-Änderung erst nach `docker compose up -d --build --force-recreate getraenkeliste-web` aktiv.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
   `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
@@ -163,7 +178,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   Response). Archivieren/Passwort-Reset müssen `loescheFuerPerson` + `merkCookieLoeschen` aufrufen. Tests setzen den Cookie über
   `service('superglobals')->setCookie(...)`, nicht `$_COOKIE`.
 - `app/Filters/` — `angemeldet` (AnmeldungFilter, per Routengruppe in `Routes.php`, nicht global) und
-  `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`); `csrf` bleibt global.
+  `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`), `bild` (BildFilter, Artikelbilder: Anmeldung oder Tablet, sonst 403); `csrf` bleibt global.
 - Routen: `GET/POST login`, `POST logout` (kein GET → 404), `/` → Redirect `buchen`,
   `GET buchen`, `POST buchen`, `POST buchen/rueckgaengig` (Filter `angemeldet` + `recht:buchen`). `AuthController`, `BuchenController`.
 - Buchen am eigenen Gerät (`BuchenController`): JSON-Endpunkte, CSRF per Header `X-CSRF-TOKEN` (ohne gültigen Token
@@ -201,10 +216,10 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   `.dockerignore` hält `.env`, Override, `.git`, `vendor/`, `writable/`, `backups/` aus dem Build-Kontext (keine Geheimnisse im Image;
   `vendor/` entsteht im Build per `composer install --no-dev`). `.env` auf dem Pi: `chown <user>:33`, `chmod 640` (Apache liest sie über den Bind-Mount).
 - Backup/Betrieb (Task 18, aus Stufe 2 vorgezogen): `scripts/backup.sh` (Host, bash; DB-Dump per `docker exec -e MYSQL_PWD … mysqldump`,
-  `exporte_*.tar.gz` aus `writable/exporte/`, `konfig_*.tar.gz` mit `.env`/Override, `umask 077`, Monats-Promotion, Retention;
+  `exporte_*.tar.gz` aus `writable/exporte/`, `artikelbilder_*.tar.gz` aus `writable/artikelbilder/` (Task 11), `konfig_*.tar.gz` mit `.env`/Override, `umask 077`, Monats-Promotion, Retention;
   Mount-Prüfung `BACKUP_MOUNT` (leer = aus), dann ist `DB_PASS` Pflicht; alles erst als `*.tmp`, geprüft, dann `mv`, `trap` räumt `*.tmp` weg),
   `scripts/restore.sh` (prüft „Dump completed“ der Quelle, Rückfrage „ja“/`--ja`, ohne TTY nur mit `--ja`, stoppt `WEB_CONTAINER` und startet ihn per `trap` wieder, Sicherheits-Dump
-  nach `BACKUP_DIR/vor-restore/`, Export-Archiv nur mit `exporte/`-Pfaden, Konfig nie automatisch), `deploy/systemd/` (Timer 02:30,
+  nach `BACKUP_DIR/vor-restore/`, Export-Archiv nur mit `exporte/`-Pfaden, Bild-Archiv (am Namen `artikelbilder_*.tar.gz` erkannt) nur mit `artikelbilder/`-Pfaden, Konfig nie automatisch), `deploy/systemd/` (Timer 02:30,
   `EnvironmentFile=/etc/getraenkeliste-backup.env`, Vorlage `deploy/getraenkeliste-backup.env.example`). Doku: `docs/BACKUP.md`,
   `docs/DEPLOY-PI.md` (Pi-Installation, Update, Tablet, Fehlersuche). Skripte mit LF und Git-Modus 755 committen.
 
@@ -272,7 +287,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
   `CI_ENVIRONMENT` defaultet in `docker-compose.yml` auf `development`; auf dem Pi muss `.env` `CI_ENVIRONMENT=production` setzen (ohne Leerzeichen, Compose liest die Datei mit; README).
   Compose ignoriert die CI-Zeilen mit Punkten (`app.baseURL = '…'`, `cookie.secure = true`) – mit `docker compose --env-file <tmp> config` geprüft. `cookie.secure = true` nur hinter HTTPS (sonst kein Login).
-- **Backups (Task 18):** neue persistente Daten außerhalb der DB gehören in `writable/exporte/` oder müssen in `scripts/backup.sh` ergänzt werden; neue Geheimnisse nur in `.env` (landen im Konfig-Archiv).
+- **Backups (Task 18):** neue persistente Daten außerhalb der DB gehören in `writable/exporte/` bzw. `writable/artikelbilder/` oder müssen in `scripts/backup.sh` ergänzt werden; neue Geheimnisse nur in `.env` (landen im Konfig-Archiv).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token
   muss idempotent bleiben; festgenagelt in `ZugriffsschutzTest::test_csrf_token_wird_nach_post_nicht_regeneriert`); `Security::$redirect = true` — Formular-POST ohne gültiges
   CSRF-Token wird zurückgeleitet statt 403 (JSON/AJAX bekommt 403).
@@ -288,7 +303,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
 - **Sitzung ↔ Passwort:** Session trägt `passwort_fingerabdruck` (sha256 des `passwort_hash`); `Anmeldung::person()` meldet bei Abweichung ab. Wer `passwort_hash` der eigenen Sitzung ändert, ruft `fingerabdruckAktualisieren()`; Reset durch Admin beendet alle Sitzungen der Person.
 - **Tablet-CSRF-Ausnahme:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Config\Filters`) und nur über `tablet` + `tablet_csrf` erreichbar; neue Tablet-Routen gehören in die Routengruppe `tablet`. Alle übrigen POSTs behalten `csrf` (+ `Security::$regenerate = false`).
 - **Protokoll:** nie Hashes, Passwörter, PINs, Freischalt-/Einmalcodes (`Protokollierer` entfernt `*_hash`-Schlüssel; Klartext-Geheimnisse gehören nicht hinein). Sortieren und eigene Buchungen/Stornos werden nicht protokolliert.
-- **Rechte:** Berechtigung nur über Filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`) in `Routes.php`; neue Route ⇒ `ZugriffsschutzTest` erweitern.
+- **Rechte:** Berechtigung nur über Filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`, `bild`) in `Routes.php`; neue Route ⇒ `ZugriffsschutzTest` erweitern.
 
 ## Bewusste Abweichungen vom Kassensystem (Spec Abschnitt 3)
 - Rollen und Mehrbenutzerbetrieb sind der Zweck dieser App.

@@ -22,6 +22,9 @@ $routes->group('tablet', ['filter' => ['tablet', 'tablet_csrf']], static functio
     $routes->post('fertig', 'TabletController::fertig');
 });
 
+// Artikelbilder: persönliche Anmeldung oder gültiges Tablet (Filter `bild`), sonst 403.
+$routes->get('artikelbild/(:num)', 'ArtikelbildController::zeige/$1', ['filter' => 'bild']);
+
 $routes->group('', ['filter' => 'angemeldet:frei'], static function (RouteCollection $routes): void {
     $routes->post('logout', 'AuthController::logout');
     $routes->get('konto/einrichten', 'KontoController::einrichtenForm');

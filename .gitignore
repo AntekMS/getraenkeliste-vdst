@@ -131,6 +131,8 @@ _modules/*
 docker-compose.override.yml
 writable/exporte/*
 !writable/exporte/.gitkeep
+writable/artikelbilder/*
+!writable/artikelbilder/.gitkeep
 .superpowers/
 
 # Lokale Backups (scripts/backup.sh mit BACKUP_DIR=./backups)

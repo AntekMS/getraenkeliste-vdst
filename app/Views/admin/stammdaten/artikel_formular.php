@@ -10,6 +10,8 @@ $preis = old('preis') ?? ($neu ? '' : number_format((int) $artikel['preis_cent']
 // Beim Neuanlegen ist „Bestand führen“ vorbelegt; nach einem Fehler gilt die Eingabe.
 $bestandFuehren = old('name') !== null ? old('bestand_fuehren') === '1' : ($neu || (int) $artikel['bestand_fuehren'] === 1);
 $kategorieWert  = (int) old('kategorie_id', $kategorie['id']);
+$bildFehler     = (session()->getFlashdata('fehler') ?? [])['bild'] ?? null;
+$bildUrl        = $neu ? null : \App\Libraries\Artikelbild::url($artikel);
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <h1 class="h3 mb-0"><?= $neu ? 'Artikel anlegen' : esc($artikel['name']) ?></h1>
@@ -20,7 +22,7 @@ $kategorieWert  = (int) old('kategorie_id', $kategorie['id']);
     <div class="alert alert-warning">Dieser Artikel ist archiviert (seit <?= esc($artikel['archiviert_at']) ?>) und kann nicht bearbeitet werden.</div>
 <?php endif; ?>
 
-<form action="<?= base_url($neu ? 'admin/artikel' : 'admin/artikel/' . $artikel['id']) ?>" method="post" class="mb-4">
+<form action="<?= base_url($neu ? 'admin/artikel' : 'admin/artikel/' . $artikel['id']) ?>" method="post" enctype="multipart/form-data" class="mb-4">
     <?= csrf_field() ?>
     <div class="row g-3">
         <div class="col-md-6">
@@ -67,6 +69,23 @@ $kategorieWert  = (int) old('kategorie_id', $kategorie['id']);
                 <input class="form-check-input" type="checkbox" id="bestand_fuehren" name="bestand_fuehren" value="1" <?= $bestandFuehren ? 'checked' : '' ?>>
                 <label class="form-check-label" for="bestand_fuehren">Bestand führen</label>
             </div>
+        </div>
+        <div class="col-md-6">
+            <label for="bild" class="form-label">Bild</label>
+            <?php if ($bildUrl !== null): ?>
+                <div class="mb-2"><img class="artikel-bild-vorschau" src="<?= esc(base_url($bildUrl), 'attr') ?>" alt="Aktuelles Bild von <?= esc($artikel['name'], 'attr') ?>"></div>
+            <?php endif; ?>
+            <input type="file" class="form-control<?= $bildFehler !== null ? ' is-invalid' : '' ?>" id="bild" name="bild" accept="image/jpeg,image/png,image/webp">
+            <?php if ($bildFehler !== null): ?>
+                <div class="invalid-feedback"><?= esc($bildFehler) ?></div>
+            <?php endif; ?>
+            <div class="form-text">JPG, PNG oder WebP, höchstens 5 MB; wird auf 600 px verkleinert. Ein neues Bild ersetzt das bisherige.</div>
+            <?php if ($bildUrl !== null): ?>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="bild_entfernen" name="bild_entfernen" value="1">
+                    <label class="form-check-label" for="bild_entfernen">Bild entfernen</label>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
     <?php if ($neu || $artikel['archiviert_at'] === null): ?>

@@ -80,6 +80,16 @@ final class Geraete
         return $geraet;
     }
 
+    /**
+     * Gültiges, nicht gesperrtes Gerät? Nur lesend (für Bildabrufe, ohne `zuletzt_gesehen_at` zu schreiben).
+     */
+    public function istGueltigesToken(?string $token): bool
+    {
+        $geraet = $this->suche($token);
+
+        return $geraet !== null && $geraet['gesperrt_at'] === null;
+    }
+
     public function istGesperrtesToken(?string $token): bool
     {
         $geraet = $this->suche($token);

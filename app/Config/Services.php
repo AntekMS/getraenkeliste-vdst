@@ -3,6 +3,7 @@
 namespace Config;
 
 use App\Libraries\Anmeldung;
+use App\Libraries\Artikelbild;
 use App\Libraries\AuszaehlungExport;
 use App\Libraries\AuszaehlungService;
 use App\Libraries\BestandService;
@@ -16,7 +17,7 @@ use CodeIgniter\Config\BaseService;
 
 /**
  * Anwendungsspezifische Services: `uhr` (einzige Quelle für „jetzt“),
- * `einstellungen`, `zeitraeume` (beide je Request gecacht), `protokollierer` und `auszaehlungExport`.
+ * `einstellungen`, `zeitraeume` (beide je Request gecacht), `protokollierer`, `auszaehlungExport` und `artikelbild`.
  */
 class Services extends BaseService
 {
@@ -108,5 +109,14 @@ class Services extends BaseService
         }
 
         return new Zeitraeume();
+    }
+
+    public static function artikelbild(bool $getShared = true): Artikelbild
+    {
+        if ($getShared) {
+            return static::getSharedInstance('artikelbild');
+        }
+
+        return new Artikelbild();
     }
 }

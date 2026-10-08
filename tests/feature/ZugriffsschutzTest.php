@@ -26,6 +26,7 @@ use Tests\Support\DbTestCase;
  * | abmelden    | Redirect `login`      | Redirect `login`      | Redirect `login`      | Redirect `tablet` |
  * | admin       | Redirect `login`      | 403                   | durchgelassen         | Redirect `tablet` |
  * | umleitung   | Redirect `buchen`     | Redirect `buchen`     | Redirect `buchen`     | Redirect `buchen` |
+ * | bild        | 403                   | durchgelassen (404)   | durchgelassen (404)   | durchgelassen (404) |
  *
  * Der Test prüft nur die Zugriffsschicht (Filter), keine Fachlogik: „durchgelassen“ ist ein Access-Check, kein Funktionstest.
  * Alle ID-Routen nutzen eine nicht existierende ID, damit Admin-POSTs bei geteilter DB ($refresh = false) nie echte Zeilen ändern.
@@ -59,6 +60,7 @@ final class ZugriffsschutzTest extends DbTestCase
         ['GET', 'tablet', 'tablet'], ['GET', 'tablet/pin/999999', 'tablet'], ['GET', 'tablet/buchen', 'tablet'],
         ['POST', 'tablet/waehlen/999999', 'tablet'], ['POST', 'tablet/pin/999999', 'tablet'], ['POST', 'tablet/buchen', 'tablet'],
         ['POST', 'tablet/rueckgaengig', 'tablet'], ['POST', 'tablet/fertig', 'tablet'],
+        ['GET', 'artikelbild/999999', 'bild'],
         ['POST', 'logout', 'abmelden'],
         ['GET', 'konto/einrichten', 'angemeldet'], ['POST', 'konto/einrichten', 'angemeldet'],
         ['GET', 'konto', 'angemeldet'], ['POST', 'konto/passwort', 'angemeldet'], ['POST', 'konto/pin', 'angemeldet'],
@@ -266,6 +268,8 @@ final class ZugriffsschutzTest extends DbTestCase
                 'tablet'                    => 'redirect:tablet',
                 default                     => 'nicht_gefunden',
             },
+            // Artikelbild: Anmeldung oder gültiges Tablet; sonst 403 (kein Redirect, wird per <img> geladen). Beispiel-ID fehlt → 404.
+            'bild'      => $akteur === 'anonym' ? 'verboten' : 'nicht_gefunden',
             'umleitung' => 'redirect:buchen',
         };
     }

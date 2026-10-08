@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Controllers\Admin;
 
 use App\Controllers\BaseController;
+use App\Libraries\Artikelbild;
+use App\Libraries\BildAbgelehnt;
 use App\Models\ArtikelModel;
 use App\Models\BereichModel;
 use App\Models\KategorieModel;
@@ -149,17 +151,26 @@ class StammdatenController extends BaseController
 
         [$daten, $fehler] = $this->pruefeArtikel();
 
+        $zurueck = redirect()->to(site_url('admin/artikel/neu?kategorie=' . $kategorie['id']));
+
         if ($fehler !== null) {
-            return redirect()->to(site_url('admin/artikel/neu?kategorie=' . $kategorie['id']))->withInput()->with('error', $fehler);
+            return $zurueck->withInput()->with('error', $fehler);
+        }
+
+        [$neueDatei, $bildFehler] = $this->schreibeHochgeladenesBild();
+
+        if ($bildFehler !== null) {
+            return $zurueck->withInput()->with('fehler', ['bild' => $bildFehler]);
         }
 
         $model = new ArtikelModel();
-        $id    = 0;
         $daten = ['kategorie_id' => (int) $kategorie['id']] + $daten;
 
-        $model->transaktion(function () use ($model, $daten, &$id): void {
+        service('artikelbild')->wechsle($neueDatei, function () use ($model, $daten, $neueDatei): ?string {
             $id = (int) $model->insert($daten + ['sortierung' => $model->naechsteSortierung($daten['kategorie_id'])], true);
             service('protokollierer')->schreibe($this->adminId(), 'angelegt', 'artikel', $id, null, $daten);
+
+            return $neueDatei === null ? null : service('artikelbild')->uebernehme($id, $neueDatei, $this->adminId());
         });
 
         return $this->zurueckZurListe()->with('success', 'Artikel angelegt.');
@@ -208,18 +219,34 @@ class StammdatenController extends BaseController
             }
         }
 
-        if ($neu === []) {
+        // Ein neues Bild ersetzt das alte; „Bild entfernen“ zählt nur ohne neues Bild und nur, wenn eines da ist.
+        $entfernen = $this->request->getPost('bild_entfernen') === '1' && $artikel['bild_datei'] !== null;
+        $hochladen = $this->bildHochgeladen();
+
+        if ($neu === [] && ! $hochladen && ! $entfernen) {
             return $zurueck->with('success', 'Keine Änderungen.');
+        }
+
+        [$neueDatei, $bildFehler] = $this->schreibeHochgeladenesBild();
+
+        if ($bildFehler !== null) {
+            return $zurueck->withInput()->with('fehler', ['bild' => $bildFehler]);
         }
 
         $model = new ArtikelModel();
 
-        $model->transaktion(function () use ($model, $id, $alt, $neu): void {
+        service('artikelbild')->wechsle($neueDatei, function () use ($model, $id, $alt, $neu, $neueDatei, $entfernen): ?string {
             $protokoll = service('protokollierer');
             $update    = $neu;
 
             if (isset($neu['kategorie_id'])) {
                 $update['sortierung'] = $model->naechsteSortierung((int) $neu['kategorie_id']);
+            }
+
+            $altesBild = $neueDatei !== null || $entfernen ? service('artikelbild')->uebernehme($id, $neueDatei, $this->adminId()) : null;
+
+            if ($update === []) {
+                return $altesBild;
             }
 
             $model->update($id, $update);
@@ -232,6 +259,8 @@ class StammdatenController extends BaseController
             if ($neu !== []) {
                 $protokoll->schreibe($this->adminId(), 'geaendert', 'artikel', $id, $alt, $neu);
             }
+
+            return $altesBild;
         });
 
         return $zurueck->with('success', 'Gespeichert.');
@@ -265,6 +294,44 @@ class StammdatenController extends BaseController
     }
 
     // ---- Hilfen -----------------------------------------------------------
+
+    private function bildHochgeladen(): bool
+    {
+        $datei = $this->request->getFile('bild');
+
+        return $datei !== null && $datei->getError() !== UPLOAD_ERR_NO_FILE;
+    }
+
+    /**
+     * Prüft und schreibt ein hochgeladenes Bild (Feld `bild`), bevor die DB geändert wird.
+     *
+     * @return array{0: ?string, 1: ?string} neuer Dateiname (null = kein Upload) und Fehlertext für das Feld `bild`
+     */
+    private function schreibeHochgeladenesBild(): array
+    {
+        if (! $this->bildHochgeladen()) {
+            return [null, null];
+        }
+
+        $datei = $this->request->getFile('bild');
+
+        // Kein isValid(): das verlangt is_uploaded_file() und lässt sich in Tests nicht erfüllen.
+        $fehler = match ($datei->getError()) {
+            UPLOAD_ERR_OK                             => null,
+            UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => Artikelbild::MELDUNG_GROESSE,
+            default                                   => 'Das Bild konnte nicht hochgeladen werden. Bitte erneut versuchen.',
+        };
+
+        if ($fehler !== null) {
+            return [null, $fehler];
+        }
+
+        try {
+            return [service('artikelbild')->schreibe($datei->getTempName(), (int) $datei->getSize()), null];
+        } catch (BildAbgelehnt $e) {
+            return [null, $e->getMessage()];
+        }
+    }
 
     private function adminId(): int
     {
