@@ -89,8 +89,8 @@ final class WartAuszaehlungTest extends DbTestCase
         $antwort = $this->sende(['aktion' => 'abschliessen', 'stichtag' => '2026-10-09T08:00', 'ist' => [$a => '']]);
 
         $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
-        $antwort->assertSessionHas('error', 'Bitte für jeden Artikel einen Ist-Wert eintragen.');
-        $antwort->assertSessionHas('fehler', ["ist.{$a}" => 'Bitte einen Ist-Wert eintragen.']);
+        $antwort->assertSessionHas('error', 'Bitte für jeden Artikel eintragen, wie viel du gezählt hast.');
+        $antwort->assertSessionHas('fehler', ["ist.{$a}" => 'Bitte für jeden Artikel eintragen, wie viel du gezählt hast.']);
         $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
     }
 
@@ -244,7 +244,7 @@ final class WartAuszaehlungTest extends DbTestCase
         $this->assertStringContainsString('value="2026-10-10T12:00"', $antwort->getBody());
         $this->assertSame(1, substr_count($antwort->getBody(), 'btn-vdst"'));
         $this->assertStringContainsString('Entwurf speichern', $antwort->getBody());
-        $this->assertMatchesRegularExpression('/class="btn btn-vdst"[^>]*data-confirm="Auszählung wirklich abschließen\? Danach sind alle Buchungen bis zum Stichtag eingefroren\."[^>]*>Abschließen</', html_entity_decode($antwort->getBody()));
+        $this->assertMatchesRegularExpression('/class="btn btn-vdst"[^>]*data-confirm="Auszählung jetzt abschließen\? Alle Artikel stimmen\. Danach sind alle Buchungen bis zum Stichtag abgerechnet und können nicht mehr geändert werden\."[^>]*>Abschließen</', html_entity_decode($antwort->getBody()));
         $this->assertStringContainsString('class="btn btn-outline-vdst" name="aktion" value="entwurf"', $antwort->getBody());
         $this->assertStringNotContainsString('onclick', $antwort->getBody());
     }
@@ -313,7 +313,7 @@ final class WartAuszaehlungTest extends DbTestCase
             $antwort = $this->sende(['stichtag' => '2026-10-09T08:00', 'ist' => [$a => $wert]]);
 
             $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
-            $antwort->assertSessionHas('fehler', ["ist.{$a}" => 'Ist muss eine ganze Zahl ≥ 0 sein.']);
+            $antwort->assertSessionHas('fehler', ["ist.{$a}" => 'Bitte eine Zahl ab 0 eintragen.']);
         }
 
         $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
@@ -362,5 +362,124 @@ final class WartAuszaehlungTest extends DbTestCase
         $seite = $this->withSession([...$this->angemeldeteSitzung($this->wart), 'fehler' => ['bemerkung' => $meldung], '__ci_vars' => ['fehler' => 'new']])->get('wart/getraenke/auszaehlung');
         $this->assertStringContainsString('Die Bemerkung ist zu lang (h', $seite->getBody());
         $this->assertStringContainsString('is-invalid', $seite->getBody());
+    }
+
+    private function istGespeichert(int $artikel): ?string
+    {
+        $zeile = db_connect()->table('auszaehlung_positionen')->where('artikel_id', $artikel)->get()->getRowArray();
+
+        return $zeile['ist'] === null ? null : (string) $zeile['ist'];
+    }
+
+    public function test_kisten_und_einzeln_werden_zu_stueck_umgerechnet(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1, 'gebinde_groesse' => 20]);
+
+        $this->sende(['stichtag' => '2026-10-09T08:00', 'kisten' => [$a => '2'], 'einzeln' => [$a => '3']])
+            ->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
+
+        $this->assertSame('43', $this->istGespeichert($a));
+
+        // Nur Kisten oder nur einzeln reicht; beide leer = noch nicht gezählt.
+        $this->sende(['stichtag' => '2026-10-09T08:00', 'kisten' => [$a => '1'], 'einzeln' => [$a => '']]);
+        $this->assertSame('20', $this->istGespeichert($a));
+        $this->sende(['stichtag' => '2026-10-09T08:00', 'kisten' => [$a => ''], 'einzeln' => [$a => ' ']]);
+        $this->assertNull($this->istGespeichert($a));
+    }
+
+    public function test_ungueltiges_kistenfeld_wird_mit_feldfehler_abgelehnt(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1, 'gebinde_groesse' => 20]);
+
+        foreach ([['x', '3'], ['-1', ''], ['2', '1,5'], ['1.5', '']] as [$kisten, $einzeln]) {
+            $antwort = $this->sende(['stichtag' => '2026-10-09T08:00', 'kisten' => [$a => $kisten], 'einzeln' => [$a => $einzeln]]);
+
+            $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
+            $antwort->assertSessionHas('fehler', ["ist.{$a}" => 'Bitte eine Zahl ab 0 eintragen.']);
+        }
+
+        $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());
+    }
+
+    public function test_entwurf_zeigt_stueckwert_als_kisten_und_einzeln(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1, 'gebinde_groesse' => 20]);
+        $this->sende(['stichtag' => '2026-10-09T08:00', 'ist' => [$a => '43']]);
+
+        $body = $this->alsAngemeldet($this->wart)->get('wart/getraenke/auszaehlung')->getBody();
+
+        $this->assertMatchesRegularExpression('/name="kisten\[' . $a . '\]"[^>]*value="2"/', $body);
+        $this->assertMatchesRegularExpression('/name="einzeln\[' . $a . '\]"[^>]*value="3"/', $body);
+        $this->assertStringContainsString('data-gebinde="20"', $body);
+        $this->assertStringContainsString('= 43 Stück', html_entity_decode($body));
+        $this->assertStringNotContainsString('name="ist[' . $a . ']"', $body);
+    }
+
+    public function test_formular_fuehrt_durch_stichtag_und_zaehlen(): void
+    {
+        $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $this->artikelAnlegen(['name' => 'Dunkles', 'bestand_fuehren' => 1, 'gebinde_groesse' => 20]);
+
+        $antwort = $this->alsAngemeldet($this->wart)->get('wart/getraenke/auszaehlung');
+
+        $antwort->assertOK();
+        $body = $antwort->getBody();
+        $text = html_entity_decode($body);
+        $this->assertStringContainsString('1. Stichtag', $text);
+        $this->assertStringContainsString('2. Zählen', $text);
+        $this->assertStringContainsString('Laut System', $text);
+        $this->assertMatchesRegularExpression('/>Bier <span[^>]*>\(2 Artikel\)</', $text);
+        $this->assertStringContainsString('data-preis="150"', $body);
+        $this->assertStringContainsString('0 von 2 gezählt', $text);
+        $this->assertStringContainsString('Zum Abschließen bitte alle Artikel zählen.', $text);
+        $this->assertSame(1, substr_count($body, 'btn-vdst"'));
+        $this->assertStringNotContainsString('style=', $body);
+        $this->assertStringNotContainsString('form-control-sm', $body);
+        $this->assertStringContainsString('Neu: Für diesen Artikel gab es noch keine Zählung. Die Abweichung zählt diesmal nicht als Schwund.', $text);
+    }
+
+    public function test_neu_hinweis_fehlt_wenn_alle_artikel_schon_gezaehlt_wurden(): void
+    {
+        $a   = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $alt = $this->auszaehlungAnlegen('2026-10-03 00:00:00', 'abgeschlossen', 'getraenke', ['art' => 'start', 'zeitraum_von' => '2026-10-01 00:00:00']);
+        db_connect()->table('auszaehlung_positionen')->insert([
+            'auszaehlung_id' => $alt, 'artikel_id' => $a, 'anfangsbestand' => 0, 'lieferungen' => 0, 'schwund_erfasst' => 0,
+            'korrekturen' => 0, 'verkauft' => 0, 'soll' => 0, 'ist' => 0, 'differenz' => 0, 'start' => 1, 'preis_cent' => 150,
+        ]);
+
+        $text = html_entity_decode($this->alsAngemeldet($this->wart)->get('wart/getraenke/auszaehlung')->getBody());
+
+        $this->assertStringNotContainsString('Neu: Für diesen Artikel', $text);
+        $this->assertStringNotContainsString('>neu<', $text);
+    }
+
+    public function test_abweichung_wird_vorgerendert(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $b = $this->artikelAnlegen(['name' => 'Dunkles', 'bestand_fuehren' => 1]);
+        db_connect()->table('bestandsbewegungen')->insert([
+            'artikel_id' => $a, 'art' => 'lieferung', 'menge' => 24, 'person_id' => $this->wart, 'erfolgt_at' => '2026-10-02 10:00:00',
+        ]);
+        $this->sende(['stichtag' => '2026-10-09T08:00', 'ist' => [$a => '20', $b => '0']]);
+
+        $text = html_entity_decode($this->alsAngemeldet($this->wart)->get('wart/getraenke/auszaehlung')->getBody());
+
+        $this->assertStringContainsString('4 fehlen', $text);
+        $this->assertStringContainsString('stimmt', $text);
+        $this->assertStringContainsString('2 von 2 gezählt', $text);
+        $this->assertStringContainsString('Abweichung: −6,00 €', $text);
+        $this->assertStringContainsString('data-confirm="Auszählung jetzt abschließen? 1 Artikel weicht ab (zusammen −6,00 €). Danach sind alle Buchungen bis zum Stichtag abgerechnet und können nicht mehr geändert werden."', $text);
+    }
+
+    public function test_array_werte_in_kisten_und_einzeln_fuehren_nicht_zu_einem_serverfehler(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1, 'gebinde_groesse' => 20]);
+
+        foreach ([['kisten' => [$a => ['1']], 'einzeln' => [$a => ['2']]], ['kisten' => 'x', 'einzeln' => ['y' => '1']]] as $daten) {
+            $antwort = $this->sende(['stichtag' => '2026-10-09T08:00'] + $daten);
+
+            $antwort->assertRedirectTo(site_url('wart/getraenke/auszaehlung'));
+            $this->alsAngemeldet($this->wart)->get('wart/getraenke/auszaehlung')->assertOK();
+        }
     }
 }

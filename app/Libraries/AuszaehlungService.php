@@ -19,8 +19,8 @@ use Throwable;
 class AuszaehlungService
 {
     public const MAX_BEMERKUNG = 1000;
-    public const MELDUNG_IST = 'Ist muss eine ganze Zahl ≥ 0 sein.';
-    public const MELDUNG_IST_FEHLT = 'Bitte einen Ist-Wert eintragen.';
+    public const MELDUNG_IST = 'Bitte eine Zahl ab 0 eintragen.';
+    public const MELDUNG_IST_FEHLT = 'Bitte für jeden Artikel eintragen, wie viel du gezählt hast.';
 
     /**
      * Soll je Artikel (Entscheidung 7: bestandsführend; archivierte nur mit Bestand oder Aktivität im Zeitraum),
@@ -147,7 +147,7 @@ class AuszaehlungService
             }
 
             if ($fehlend !== []) {
-                throw new AuszaehlungAbgelehnt('Bitte für jeden Artikel einen Ist-Wert eintragen.', $fehlend);
+                throw new AuszaehlungAbgelehnt(self::MELDUNG_IST_FEHLT, $fehlend);
             }
 
             $abschluss = $kopf + [

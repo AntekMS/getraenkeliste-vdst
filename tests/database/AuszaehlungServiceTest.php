@@ -327,7 +327,7 @@ final class AuszaehlungServiceTest extends DbTestCase
             (new AuszaehlungService())->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 1, $b => null], null);
             $this->fail('Erwartet: Ablehnung');
         } catch (AuszaehlungAbgelehnt $e) {
-            $this->assertSame('Bitte für jeden Artikel einen Ist-Wert eintragen.', $e->getMessage());
+            $this->assertSame('Bitte für jeden Artikel eintragen, wie viel du gezählt hast.', $e->getMessage());
             $this->assertSame(["ist.{$b}" => AuszaehlungService::MELDUNG_IST_FEHLT], $e->fehler);
         }
 

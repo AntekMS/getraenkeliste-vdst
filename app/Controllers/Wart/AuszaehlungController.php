@@ -10,6 +10,7 @@ use App\Libraries\AuszaehlungAbgelehnt;
 use App\Libraries\AuszaehlungRechner;
 use App\Libraries\AuszaehlungService;
 use App\Libraries\Berechtigung;
+use App\Models\ArtikelModel;
 use App\Models\AuszaehlungModel;
 use App\Models\AuszaehlungPositionModel;
 use CodeIgniter\Exceptions\PageNotFoundException;
@@ -28,6 +29,9 @@ class AuszaehlungController extends BaseController
     use WartEingaben;
 
     private const MELDUNG_STICHTAG = 'Bitte einen gültigen Stichtag angeben.';
+
+    /** Obergrenze für einen gezählten Stückwert (auch nach Kisten × Gebinde). */
+    private const MAX_STUECK = 999999;
 
     public function index(string $bereichSchluessel): string
     {
@@ -67,22 +71,123 @@ class AuszaehlungController extends BaseController
             }
         }
 
-        $gruppen = [];
+        $vorschlag = service('auszaehlungen')->vorschlag($bereichId, $stichtag);
+        $gebinde   = $this->gebinde(array_column($vorschlag, 'artikel_id'));
+        $hatAlt    = old('aktion') !== null;
+        $gruppen   = [];
+        $summe     = ['artikel' => 0, 'gezaehlt' => 0, 'abweichend' => 0, 'cent' => 0, 'neu' => false];
 
-        foreach (service('auszaehlungen')->vorschlag($bereichId, $stichtag) as $p) {
+        foreach ($vorschlag as $p) {
+            $zeile = $this->zeile($p, $gebinde[(int) $p['artikel_id']] ?? null, $hatAlt, $gespeichert);
             $gruppen[$p['kategorie_id']] ??= ['kategorie_name' => $p['kategorie_name'], 'positionen' => []];
-            $gruppen[$p['kategorie_id']]['positionen'][] = $p;
+            $gruppen[$p['kategorie_id']]['positionen'][] = $zeile;
+
+            $summe['artikel']++;
+            $summe['neu'] = $summe['neu'] || (bool) $p['start'];
+
+            if ($zeile['abweichung'] !== null) {
+                $summe['gezaehlt']++;
+                $summe['abweichend'] += $zeile['abweichung'] === 0 ? 0 : 1;
+                $summe['cent']       += $zeile['abweichung'] * (int) $p['preis_cent'];
+            }
         }
 
         return view('wart/auszaehlung_formular', [
             'bereich'     => $bereich,
             'gruppen'     => array_values($gruppen),
+            'summe'       => $summe,
             'stichtag'    => $stichtag->format('Y-m-d\TH:i'),
-            'ist'         => $gespeichert,
             'bemerkung'   => $this->text(old('bemerkung', $entwurf['bemerkung'] ?? '')),
             'hatEntwurf'  => $entwurf !== null,
             'fehler'      => $fehler,
         ]);
+    }
+
+    /**
+     * Anzeigewerte einer Zeile: Eingabe aus `old()` (nach einem Fehler) oder dem Entwurf; Gebinde-Artikel zeigen einen
+     * Stückwert als Kisten/einzeln (⌊n/gebinde⌋, Rest). `abweichung` = gezählt − laut System, null = nicht (gültig) gezählt.
+     *
+     * @param array<string, mixed>   $p
+     * @param array<int, string>     $gespeichert
+     *
+     * @return array<string, mixed>
+     */
+    private function zeile(array $p, ?int $gebinde, bool $hatAlt, array $gespeichert): array
+    {
+        $id     = (int) $p['artikel_id'];
+        $altIst = $hatAlt ? old('ist', null, false) : null;
+        $ist    = $hatAlt ? $this->text(is_array($altIst) ? ($altIst[$id] ?? '') : '') : ($gespeichert[$id] ?? '');
+        $zeile  = $p + ['gebinde' => $gebinde, 'wert' => trim($ist), 'kisten' => '', 'einzeln' => ''];
+
+        if ($gebinde === null) {
+            $gezaehlt = ctype_digit($zeile['wert']) ? (int) $zeile['wert'] : null;
+        } else {
+            $kisten  = $hatAlt ? old('kisten', null, false) : null;
+            $einzeln = $hatAlt ? old('einzeln', null, false) : null;
+            $kisten  = is_array($kisten) ? $kisten : [];
+            $einzeln = is_array($einzeln) ? $einzeln : [];
+
+            if (array_key_exists($id, $kisten) || array_key_exists($id, $einzeln)) {
+                $zeile['kisten']  = trim($this->text($kisten[$id] ?? ''));
+                $zeile['einzeln'] = trim($this->text($einzeln[$id] ?? ''));
+            } elseif (ctype_digit($zeile['wert'])) {
+                $zeile['kisten']  = (string) intdiv((int) $zeile['wert'], $gebinde);
+                $zeile['einzeln'] = (string) ((int) $zeile['wert'] % $gebinde);
+            }
+
+            $gezaehlt = $this->stueck($zeile['kisten'], $zeile['einzeln'], $gebinde);
+            $gezaehlt = is_int($gezaehlt) ? $gezaehlt : null;
+        }
+
+        return $zeile + ['gezaehlt' => $gezaehlt, 'abweichung' => $gezaehlt === null ? null : $gezaehlt - (int) $p['soll']];
+    }
+
+    /**
+     * Gebindegröße je Artikel (nur > 0), eine Abfrage.
+     *
+     * @param list<int|string> $ids
+     *
+     * @return array<int, int>
+     */
+    private function gebinde(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $gebinde = [];
+
+        foreach ((new ArtikelModel())->select('id, gebinde_groesse')->whereIn('id', $ids)->findAll() as $a) {
+            if ((int) $a['gebinde_groesse'] > 0) {
+                $gebinde[(int) $a['id']] = (int) $a['gebinde_groesse'];
+            }
+        }
+
+        return $gebinde;
+    }
+
+    /**
+     * Kisten × Gebinde + einzeln: null = beide leer, false = ungültige Eingabe (keine ganze Zahl ≥ 0, zu groß oder Kisten ohne Gebinde).
+     */
+    private function stueck(string $kisten, string $einzeln, ?int $gebinde): int|false|null
+    {
+        if ($kisten === '' && $einzeln === '') {
+            return null;
+        }
+
+        foreach ([$kisten, $einzeln] as $wert) {
+            if ($wert !== '' && preg_match('/^\d{1,6}$/', $wert) !== 1) {
+                return false;
+            }
+        }
+
+        if ($kisten !== '' && $gebinde === null) {
+            return false;
+        }
+
+        $stueck = (int) $kisten * (int) $gebinde + (int) $einzeln;
+
+        return $stueck > self::MAX_STUECK ? false : $stueck;
     }
 
     public function speichern(string $bereichSchluessel): RedirectResponse
@@ -114,10 +219,29 @@ class AuszaehlungController extends BaseController
 
             if ($wert === '') {
                 $ist[(int) $artikelId] = null;
-            } elseif (preg_match('/^-?\d{1,6}$/', $wert) === 1) {
+            } elseif (preg_match('/^\d{1,6}$/', $wert) === 1) {
                 $ist[(int) $artikelId] = (int) $wert;
             } else {
                 $fehler["ist.{$artikelId}"] = AuszaehlungService::MELDUNG_IST;
+            }
+        }
+
+        // Gebinde-Artikel: „Kisten“ und „einzeln“ werden hier zu Stück (ist) zusammengerechnet; der Service kennt nur Stück.
+        $kisten  = $this->request->getPost('kisten');
+        $einzeln = $this->request->getPost('einzeln');
+        $kisten  = is_array($kisten) ? $kisten : [];
+        $einzeln = is_array($einzeln) ? $einzeln : [];
+        $ids     = array_values(array_filter(array_unique(array_merge(array_keys($kisten), array_keys($einzeln))), static fn ($id): bool => ctype_digit((string) $id)));
+        $gebinde = $this->gebinde($ids);
+
+        foreach ($ids as $artikelId) {
+            $stueck = $this->stueck(trim($this->text($kisten[$artikelId] ?? '')), trim($this->text($einzeln[$artikelId] ?? '')), $gebinde[(int) $artikelId] ?? null);
+
+            if ($stueck === false) {
+                $fehler["ist.{$artikelId}"] = AuszaehlungService::MELDUNG_IST;
+            } else {
+                $ist[(int) $artikelId] = $stueck;
+                unset($fehler["ist.{$artikelId}"]);
             }
         }
 
