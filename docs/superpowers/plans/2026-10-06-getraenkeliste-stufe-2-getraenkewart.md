@@ -25,7 +25,7 @@
 
 1. **Bereichssperre gegen den Abschluss-Wettlauf:** Buchen, Storno, Bewegungen und Auszählungs-Abschluss sperren in ihrer Transaktion zuerst die betroffene(n) Zeile(n) in `bereiche` (`SELECT … FOR UPDATE`) und prüfen erst danach den Stichtag. So kann nach einem Abschluss nichts mehr mit Zeitpunkt ≤ Stichtag in den eingefrorenen Zeitraum rutschen.
 2. **Stichtag-Genauigkeit:** Minute (`JJJJ-MM-TT hh:mm:00`); Standard = aktuelle Minute.
-3. **Neue Artikel:** `auszaehlung_positionen.start` (bool) = Artikel hatte keine Position in einer früheren abgeschlossenen Auszählung des Bereichs. Bei `start = 1` (und immer bei `auszaehlungen.art = start`) zählt die Differenz nicht als Schwund.
+3. **Neue Artikel:** `auszaehlung_positionen.start` (bool) = Artikel hat keine Position in der **letzten** abgeschlossenen Auszählung des Bereichs (Anfangsbestand unbekannt; geändert in der Abschluss-Fixwelle). Bei `start = 1` (und immer bei `auszaehlungen.art = start`) zählt die Differenz nicht als Schwund.
 4. **Korrekturbuchung braucht einen Grund:** neue Spalte `buchungen.bemerkung` (nullable, VARCHAR 255).
 5. **Lieferung:** Zeitpunkt = jetzt; Eingabe je Zeile Kisten + Stück (Menge = Kisten × `gebinde_groesse` + Stück), optional Einkaufspreis **je Stück** (Komma-Eingabe). Keine Stornos von Bewegungen – Fehler korrigiert man mit einer Korrektur-Bewegung.
 6. **Wart-Storno** ist frei von der Storno-Frist (nur Einfrieren zählt) und braucht einen Grund; wird protokolliert. Korrekturbuchungen werden protokolliert.
