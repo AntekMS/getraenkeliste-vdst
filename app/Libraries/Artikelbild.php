@@ -50,7 +50,8 @@ class Artikelbild
     }
 
     /**
-     * Relative URL des Bildes mit Cache-Buster (`artikelbild/<id>?v=<bild_version>`), null ohne Bild.
+     * Relative URL des Bildes mit Cache-Buster (`artikelbild/<id>?v=<bild_version>-<erste 8 Zeichen von bild_datei>`), null ohne Bild.
+     * Der Dateianteil hält den Schlüssel eindeutig, auch wenn dieselbe Version nach einem Restore ein anderes Bild meint.
      *
      * @param array<string, mixed> $artikel mit `id`, `bild_datei`, `bild_version`
      */
@@ -60,7 +61,7 @@ class Artikelbild
             return null;
         }
 
-        return 'artikelbild/' . (int) $artikel['id'] . '?v=' . (int) ($artikel['bild_version'] ?? 0);
+        return 'artikelbild/' . (int) $artikel['id'] . '?v=' . (int) ($artikel['bild_version'] ?? 0) . '-' . substr((string) $artikel['bild_datei'], 0, 8);
     }
 
     /**

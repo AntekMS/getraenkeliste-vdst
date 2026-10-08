@@ -218,6 +218,7 @@ final class ArtikelbildTest extends DbTestCase
 
         $info = getimagesize($this->basis . '/artikelbilder/' . $this->artikel($id)['bild_datei']);
         $this->assertSame([100, 200], [$info[0], $info[1]]);
+        $this->assertStringNotContainsString("Exif\x00\x00", (string) file_get_contents($this->basis . '/artikelbilder/' . $this->artikel($id)['bild_datei']), 'EXIF entfernt');
     }
 
     public function test_textdatei_mit_jpg_endung_wird_abgelehnt(): void
@@ -234,6 +235,29 @@ final class ArtikelbildTest extends DbTestCase
         $this->assertNull($this->artikel($id)['bild_datei']);
         $this->assertSame([], $this->dateien());
         $this->assertSame([], $this->protokoll('bild_geaendert'));
+    }
+
+    public function test_svg_und_html_polyglot_werden_abgelehnt(): void
+    {
+        $png = (string) file_get_contents($this->bild(10, 10));
+
+        foreach ([
+            'bild.svg' => '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(1)</script></svg>',
+            'bild.png' => '<!DOCTYPE html><html><body><script>alert(1)</script></body></html>' . $png,
+        ] as $name => $inhalt) {
+            $id   = $this->artikelAnlegen(['name' => $name]);
+            $pfad = (string) tempnam(sys_get_temp_dir(), 'poly');
+            $this->tmpDateien[] = $pfad;
+            file_put_contents($pfad, $inhalt);
+            $this->hochladen($pfad, $name);
+
+            $this->speichern($id, ['name' => $name])->assertRedirectTo(site_url("admin/artikel/{$id}"));
+
+            $this->assertSame(['bild' => Artikelbild::MELDUNG_TYP], session()->getFlashdata('fehler'), $name);
+            $this->assertNull($this->artikel($id)['bild_datei'], $name);
+        }
+
+        $this->assertSame([], $this->dateien());
     }
 
     public function test_zu_grosses_bild_wird_abgelehnt(): void
@@ -364,7 +388,7 @@ final class ArtikelbildTest extends DbTestCase
 
         $antwort->assertSee('enctype="multipart/form-data"', null);
         $antwort->assertSee('accept="image/jpeg,image/png,image/webp"', null);
-        $antwort->assertSee("artikelbild/{$id}?v=1", null);
+        $antwort->assertSee("artikelbild/{$id}?v=1-" . substr((string) $this->artikel($id)['bild_datei'], 0, 8), null);
         $antwort->assertSee('name="bild_entfernen"', null);
     }
 
@@ -378,7 +402,7 @@ final class ArtikelbildTest extends DbTestCase
         $antwort = $this->alsAngemeldet($mitglied)->get("artikelbild/{$id}");
 
         $antwort->assertStatus(200);
-        $this->assertSame('image/jpeg', explode(';', $antwort->response()->getHeaderLine('Content-Type'))[0]);
+        $this->assertSame('image/jpeg', $antwort->response()->getHeaderLine('Content-Type'), 'ohne charset');
         $this->assertSame('private, max-age=31536000, immutable', $antwort->response()->getHeaderLine('Cache-Control'));
         $this->assertSame('nosniff', $antwort->response()->getHeaderLine('X-Content-Type-Options'));
         $this->assertSame('inline', $antwort->response()->getHeaderLine('Content-Disposition'));
@@ -443,7 +467,7 @@ final class ArtikelbildTest extends DbTestCase
         $antwort = $this->alsAngemeldet($this->admin)->get('buchen');
 
         $antwort->assertOK();
-        $antwort->assertSee('<img class="artikel-bild" src="' . base_url("artikelbild/{$mit}?v=1") . '" alt="" loading="lazy">', null);
+        $antwort->assertSee('<img class="artikel-bild" src="' . base_url("artikelbild/{$mit}?v=1-" . substr((string) $this->artikel($mit)['bild_datei'], 0, 8)) . '" alt="" loading="lazy">', null);
         $this->assertSame(1, substr_count($antwort->getBody(), 'class="artikel-bild"'));
         $antwort->assertDontSee("artikelbild/{$ohne}", null);
     }
@@ -457,6 +481,6 @@ final class ArtikelbildTest extends DbTestCase
         $antwort = $this->withSession(['csrf_test_name' => 'test-token', 'tablet_konto_id' => $couleur, 'tablet_seit' => self::JETZT])->get('tablet/buchen');
 
         $antwort->assertOK();
-        $antwort->assertSee("artikelbild/{$id}?v=1", null);
+        $antwort->assertSee("artikelbild/{$id}?v=1-" . substr((string) $this->artikel($id)['bild_datei'], 0, 8), null);
     }
 }

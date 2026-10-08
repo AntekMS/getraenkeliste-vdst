@@ -50,6 +50,13 @@ $gewaehlt = (string) old('artikel_id', '');
             <label for="bemerkung" class="form-label">Bemerkung (Pflicht)</label>
             <input type="text" class="form-control" id="bemerkung" name="bemerkung" maxlength="255" value="<?= esc((string) old('bemerkung', '')) ?>" required>
         </div>
+        <div class="col-12">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="bestandswirksam" name="bestandswirksam" value="1" <?= old('bestandswirksam') === '1' ? 'checked' : '' ?>>
+                <label class="form-check-label" for="bestandswirksam">Ware wurde tatsächlich entnommen bzw. zurückgegeben (zählt für den Bestand)</label>
+            </div>
+            <div class="form-text">Ohne Haken ändert die Korrektur nur den Betrag des Kontos.</div>
+        </div>
     </div>
     <button type="submit" class="btn btn-vdst mt-3">Buchen</button>
 </form>

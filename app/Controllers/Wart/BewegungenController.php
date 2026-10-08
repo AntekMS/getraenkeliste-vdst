@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace App\Controllers\Wart;
 
 use App\Controllers\BaseController;
+use App\Controllers\Concerns\WartEingaben;
 use App\Libraries\BewegungAbgelehnt;
-use App\Models\BereichModel;
-use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\HTTP\RedirectResponse;
 
 /**
@@ -17,6 +16,8 @@ use CodeIgniter\HTTP\RedirectResponse;
  */
 class BewegungenController extends BaseController
 {
+    use WartEingaben;
+
     private const MAX_ZEILEN  = 50;
     private const BEWEGUNGEN  = ['schwund' => 'Schwund', 'korrektur' => 'Korrektur'];
     private const MELDUNG_ZAHL = 'Bitte eine ganze Zahl angeben.';
@@ -50,11 +51,12 @@ class BewegungenController extends BaseController
                 $fehler["zeilen.{$i}.stueck"] = self::MELDUNG_ZAHL;
             }
 
+            $artikelId  = $this->text($z['artikel_id'] ?? '');
             $zeilen[$i] = [
-                'artikel_id'    => ctype_digit((string) ($z['artikel_id'] ?? '')) ? (int) $z['artikel_id'] : 0,
+                'artikel_id'    => ctype_digit($artikelId) ? (int) $artikelId : 0,
                 'kisten'        => $kisten ?? 0,
                 'stueck'        => $stueck ?? 0,
-                'einkaufspreis' => isset($z['einkaufspreis']) ? (string) $z['einkaufspreis'] : null,
+                'einkaufspreis' => isset($z['einkaufspreis']) ? $this->text($z['einkaufspreis']) : null,
             ];
         }
 
@@ -63,7 +65,7 @@ class BewegungenController extends BaseController
         }
 
         try {
-            $anzahl = service('bestand')->liefere((int) $bereich['id'], $this->personId(), $zeilen, (string) $this->request->getPost('bemerkung'));
+            $anzahl = service('bestand')->liefere((int) $bereich['id'], $this->personId(), $zeilen, $this->text($this->request->getPost('bemerkung')));
         } catch (BewegungAbgelehnt $e) {
             return $zurueck->with('error', $e->getMessage())->with('fehler', $e->fehler);
         }
@@ -75,7 +77,7 @@ class BewegungenController extends BaseController
     public function bewegungForm(string $bereichSchluessel): string
     {
         $bereich = $this->bereich($bereichSchluessel);
-        $art     = (string) $this->request->getGet('art');
+        $art     = $this->text($this->request->getGet('art'));
 
         return view('wart/bewegung', [
             'bereich'  => $bereich,
@@ -89,8 +91,8 @@ class BewegungenController extends BaseController
     {
         $bereich = $this->bereich($bereichSchluessel);
         $zurueck = redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/bewegung'))->withInput();
-        $art     = (string) $this->request->getPost('art');
-        $menge   = trim((string) $this->request->getPost('menge'));
+        $art     = $this->text($this->request->getPost('art'));
+        $menge   = trim($this->text($this->request->getPost('menge')));
 
         if (! isset(self::BEWEGUNGEN[$art])) {
             return $zurueck->with('error', 'Bitte Schwund oder Korrektur wählen.');
@@ -101,7 +103,7 @@ class BewegungenController extends BaseController
                 ->with('fehler', ['menge' => self::MELDUNG_ZAHL]);
         }
 
-        $artikelId = (string) $this->request->getPost('artikel_id');
+        $artikelId = $this->text($this->request->getPost('artikel_id'));
 
         try {
             service('bestand')->bucheBewegung(
@@ -110,7 +112,7 @@ class BewegungenController extends BaseController
                 ctype_digit($artikelId) ? (int) $artikelId : 0,
                 $art,
                 (int) $menge,
-                (string) $this->request->getPost('bemerkung'),
+                $this->text($this->request->getPost('bemerkung')),
             );
         } catch (BewegungAbgelehnt $e) {
             return $zurueck->with('error', $e->getMessage())->with('fehler', $e->fehler);
@@ -120,11 +122,15 @@ class BewegungenController extends BaseController
     }
 
     /**
-     * Leer = 0; sonst nur Ziffern (höchstens 6 Stellen), sonst null.
+     * Leer = 0; sonst nur Ziffern (höchstens 6 Stellen), sonst null (auch für Array-Werte).
      */
     private function zahl(mixed $wert): ?int
     {
-        $wert = trim((string) $wert);
+        if (is_array($wert)) {
+            return null;
+        }
+
+        $wert = trim($this->text($wert));
 
         if ($wert === '') {
             return 0;
@@ -136,19 +142,5 @@ class BewegungenController extends BaseController
     private function personId(): int
     {
         return (int) service('anmeldung')->person()['id'];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function bereich(string $schluessel): array
-    {
-        $bereich = (new BereichModel())->where('schluessel', $schluessel)->where('aktiv', 1)->first();
-
-        if ($bereich === null) {
-            throw PageNotFoundException::forPageNotFound();
-        }
-
-        return $bereich;
     }
 }

@@ -422,6 +422,95 @@ final class AuszaehlungServiceTest extends DbTestCase
         (new AuszaehlungService())->dateiNeuErzeugen($id, $this->person);
     }
 
+    public function test_neu_erzeugen_mit_neuem_namen_loescht_die_alte_datei(): void
+    {
+        $a       = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $service = new AuszaehlungService();
+        $id      = $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 0], null);
+        $aktuell = (string) $this->kopfVon($id)['datei_pfad'];
+        rename($this->basis . $aktuell, $this->basis . 'exporte/alt.xlsx');
+        db_connect()->table('auszaehlungen')->where('id', $id)->update(['datei_pfad' => 'exporte/alt.xlsx']);
+
+        $pfad = $service->dateiNeuErzeugen($id, $this->person);
+
+        $this->assertSame($aktuell, $pfad);
+        $this->assertFileExists($this->basis . $pfad);
+        $this->assertFileDoesNotExist($this->basis . 'exporte/alt.xlsx');
+    }
+
+    public function test_neu_erzeugen_mit_gleichem_namen_behaelt_die_datei(): void
+    {
+        $a       = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $service = new AuszaehlungService();
+        $id      = $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 0], null);
+        $vorher  = (string) $this->kopfVon($id)['datei_pfad'];
+
+        $this->assertSame($vorher, $service->dateiNeuErzeugen($id, $this->person));
+        $this->assertFileExists($this->basis . $vorher);
+    }
+
+    public function test_start_wenn_artikel_in_der_letzten_auszaehlung_fehlt(): void
+    {
+        $a     = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $b     = $this->artikelAnlegen(['name' => 'Dunkles', 'bestand_fuehren' => 1]);
+        $erste = $this->auszaehlungAnlegen('2026-10-02 00:00:00');
+        $zweite = $this->auszaehlungAnlegen('2026-10-03 00:00:00');
+        $position = static fn (int $auszaehlung, int $artikel): array => [
+            'auszaehlung_id' => $auszaehlung, 'artikel_id' => $artikel, 'anfangsbestand' => 0, 'lieferungen' => 0, 'schwund_erfasst' => 0,
+            'korrekturen' => 0, 'verkauft' => 0, 'soll' => 5, 'ist' => 5, 'differenz' => 0, 'start' => 0, 'preis_cent' => 150,
+        ];
+        db_connect()->table('auszaehlung_positionen')->insertBatch([$position($erste, $a), $position($erste, $b), $position($zweite, $b)]);
+
+        $v = $this->vorschlag('2026-10-08 10:00:00');
+
+        $this->assertTrue($v[$a]['start'], 'nicht in der letzten Auszählung → Anfangsbestand unbekannt');
+        $this->assertSame(0, $v[$a]['anfangsbestand']);
+        $this->assertFalse($v[$b]['start']);
+    }
+
+    public function test_nicht_bestandswirksame_korrektur_zaehlt_nicht_fuers_soll(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $this->bewegung($a, 'lieferung', 10, '2026-10-02 00:00:00');
+        $this->buchung($a, 3, '2026-10-04 12:00:00');
+        db_connect()->table('buchungen')->insert([
+            'vorgang_id' => bin2hex(random_bytes(18)), 'konto_id' => $this->person, 'artikel_id' => $a, 'menge' => -2,
+            'einzelpreis_cent' => 150, 'quelle' => 'korrektur', 'gebucht_at' => '2026-10-05 12:00:00', 'bestandswirksam' => 0,
+        ]);
+
+        $p = $this->vorschlag('2026-10-08 10:00:00')[$a];
+
+        $this->assertSame(3, $p['verkauft']);
+        $this->assertSame(7, $p['soll']);
+        $this->assertSame(service('bestand')->einzeln($a), $p['soll']);
+    }
+
+    public function test_export_zaehlt_nicht_bestandswirksame_korrektur_im_betrag_aber_nicht_im_bestand(): void
+    {
+        $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);
+        $this->bewegung($a, 'lieferung', 10, '2026-10-02 00:00:00');
+        $this->buchung($a, 3, '2026-10-04 12:00:00');
+        $this->uhrStellen('2026-10-05 12:00:00');
+        service('buchungen')->bucheKorrektur($this->person, $a, -2, 'Falsch gebucht', $this->person, $this->bereich, false);
+        $this->uhrStellen('2026-10-10 12:00:00');
+
+        $id    = (new AuszaehlungService())->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 7], null);
+        $mappe = \PhpOffice\PhpSpreadsheet\IOFactory::load($this->basis . $this->kopfVon($id)['datei_pfad']);
+        $daten = static function (string $blatt) use ($mappe): array {
+            $zeilen = $mappe->getSheetByName($blatt)->toArray(null, false, false, false);
+            $kopf   = array_shift($zeilen);
+
+            return array_map(static fn (array $z): array => array_combine($kopf, $z), $zeilen);
+        };
+
+        $abrechnung = array_column($daten('Abrechnung'), null, 'konto_id');
+        $this->assertSame(150, (int) round((float) $abrechnung[$this->person]['betrag_eur'] * 100), '3 × 1,50 − 2 × 1,50');
+        $bestand = array_column($daten('Bestand'), null, 'artikel_id')[$a];
+        $this->assertEquals(3, $bestand['verkauft']);
+        $this->assertEquals(7, $bestand['soll']);
+        $this->assertEquals(0, $bestand['differenz']);
+    }
+
     public function test_abschluss_bei_gesperrtem_bereich_liefert_deutsche_meldung(): void
     {
         $a = $this->artikelAnlegen(['bestand_fuehren' => 1]);

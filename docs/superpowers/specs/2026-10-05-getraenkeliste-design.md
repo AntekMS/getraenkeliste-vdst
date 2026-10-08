@@ -100,7 +100,7 @@ Die Rechte werden zentral in einer reinen Klasse `Berechtigung` (Rolle × Bereic
 | `person_rollen` | `person_id`, `rolle` (`getraenkewart`/`kioskwart`/`kassenwart`/`admin`); „Mitglied“ ergibt sich aus `typ = mitglied` |
 | `kategorien` | `id`, `bereich_id`, `name`, `sortierung`, `archiviert_at` |
 | `artikel` | `id`, `kategorie_id`, `name`, `preis_cent`, `einheit`, `gebinde_groesse` (Stück je Kiste, nullable), `mindestbestand`, `bestand_fuehren` (bool), `bild_datei` (nullable, Dateiname unter `writable/artikelbilder/`), `bild_version` (Cache-Buster der Bild-URL), `sortierung`, `archiviert_at` |
-| `buchungen` | `id`, `vorgang_id` (UUID des Warenkorbs), `konto_id` → personen, `artikel_id`, `menge`, `einzelpreis_cent` (Preis zum Buchungszeitpunkt), `quelle` (`tablet`/`web`/`korrektur`), `gebucht_von_id` (nullable), `geraet_id` (nullable), `gebucht_at`, `storniert_at`, `storniert_von_id`, `storno_grund`, `bemerkung` (nullable, Grund einer Korrekturbuchung) |
+| `buchungen` | `id`, `vorgang_id` (UUID des Warenkorbs), `konto_id` → personen, `artikel_id`, `menge`, `einzelpreis_cent` (Preis zum Buchungszeitpunkt), `quelle` (`tablet`/`web`/`korrektur`), `gebucht_von_id` (nullable), `geraet_id` (nullable), `gebucht_at`, `storniert_at`, `storniert_von_id`, `storno_grund`, `bemerkung` (nullable, Grund einer Korrekturbuchung), `bestandswirksam` (bool, Standard 1; nur Korrekturbuchungen können 0 sein) |
 | `bestandsbewegungen` | `id`, `artikel_id`, `art` (`lieferung`/`schwund`/`korrektur`), `menge` (±), `einkaufspreis_cent` (nullable), `bemerkung`, `person_id`, `erfolgt_at` |
 | `auszaehlungen` | `id`, `bereich_id`, `art` (`start`/`regulaer`), `stichtag`, `zeitraum_von`, `status` (`entwurf`/`abgeschlossen`), `erstellt_von_id`, `abgeschlossen_at`, `datei_pfad`, `bemerkung` |
 | `auszaehlung_positionen` | `auszaehlung_id`, `artikel_id`, `anfangsbestand`, `lieferungen`, `schwund_erfasst`, `korrekturen`, `verkauft`, `soll`, `ist`, `differenz`, `start` (bool: Artikel hatte keine frühere Position, Differenz zählt nicht als Schwund; `ist` ist im Entwurf NULL), `preis_cent` |
@@ -117,13 +117,13 @@ Die Sammelkonten **Couleur** und **Bund** werden per Migration als `personen` mi
 ### 6.1 Zeiträume
 - Ein Zeitraum eines Bereichs reicht vom Stichtag der letzten **abgeschlossenen** Auszählung (exklusiv) bis zum Stichtag der nächsten (inklusiv). Vor der ersten Auszählung beginnt er bei der Inbetriebnahme (`einstellungen.inbetriebnahme_at`).
 - Buchungen werden ihrem Zeitraum über `gebucht_at` und den Bereich des Artikels zugeordnet.
-- **Eingefrorene Zeiträume:** Buchungen, Bewegungen und Spenden mit Zeitpunkt ≤ letztem abgeschlossenem Stichtag sind unveränderlich (kein Storno, keine Änderung). Fehler daraus behebt der Wart mit einer **Korrekturbuchung** (`quelle = korrektur`, Menge auch negativ) im laufenden Zeitraum.
+- **Eingefrorene Zeiträume:** Buchungen, Bewegungen und Spenden mit Zeitpunkt ≤ letztem abgeschlossenem Stichtag sind unveränderlich (kein Storno, keine Änderung). Fehler daraus behebt der Wart mit einer **Korrekturbuchung** (`quelle = korrektur`, Menge auch negativ) im laufenden Zeitraum. Eine Korrekturbuchung wirkt standardmäßig nur auf den Betrag; optional ist sie bestandswirksam (Ware wurde tatsächlich entnommen bzw. zurückgegeben).
 
 ### 6.2 Bestand
 Aktueller Bestand eines Artikels =
 `ist` der letzten abgeschlossenen Auszählung (bzw. 0 ohne Auszählung)
 \+ Summe `bestandsbewegungen` danach
-− Summe `menge` nicht stornierter `buchungen` danach.
+− Summe `menge` nicht stornierter, bestandswirksamer `buchungen` danach.
 
 Der Bestand wird immer **berechnet**, nie gespeichert. Ein negativer Bestand ist erlaubt und wird dem Wart als Warnung angezeigt. Die erste Auszählung eines Bereichs (und die erste nach dem Anlegen neuer Artikel, für diese Artikel) legt den Anfangsbestand fest: Bei `art = start` gilt die Differenz nicht als Schwund und erscheint nicht in der Schwundstatistik. Für Artikel mit `bestand_fuehren = false` (z. B. Dienstleistungen im Kiosk) wird kein Bestand angezeigt.
 

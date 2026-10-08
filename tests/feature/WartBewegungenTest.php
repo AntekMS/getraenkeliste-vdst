@@ -154,6 +154,29 @@ final class WartBewegungenTest extends DbTestCase
         $this->assertSame([], $this->zeilen());
     }
 
+    public function test_array_parameter_sind_kein_500(): void
+    {
+        $a = $this->artikelAnlegen(['gebinde_groesse' => 20]);
+
+        $this->sende('wart/getraenke/lieferung', ['zeilen' => [['artikel_id' => [$a], 'kisten' => ['1'], 'stueck' => ['2'], 'einkaufspreis' => ['1']]], 'bemerkung' => ['x']])
+            ->assertRedirectTo(site_url('wart/getraenke/lieferung'));
+        $this->assertSame(['zeilen.0.kisten' => 'Bitte eine ganze Zahl angeben.', 'zeilen.0.stueck' => 'Bitte eine ganze Zahl angeben.'], session()->getFlashdata('fehler'));
+
+        $this->sende('wart/getraenke/bewegung', ['art' => ['schwund'], 'artikel_id' => $a, 'menge' => '1', 'bemerkung' => 'x'])
+            ->assertRedirectTo(site_url('wart/getraenke/bewegung'));
+        $this->assertSame('Bitte Schwund oder Korrektur wählen.', session()->getFlashdata('error'));
+
+        $this->sende('wart/getraenke/bewegung', ['art' => 'schwund', 'artikel_id' => [$a], 'menge' => ['1'], 'bemerkung' => 'x'])
+            ->assertRedirectTo(site_url('wart/getraenke/bewegung'));
+        $this->assertArrayHasKey('menge', session()->getFlashdata('fehler'));
+
+        $this->sende('wart/getraenke/bewegung', ['art' => 'schwund', 'artikel_id' => (string) $a, 'menge' => '1', 'bemerkung' => ['x']])
+            ->assertRedirectTo(site_url('wart/getraenke/bewegung'));
+        $this->assertSame('Bitte eine Bemerkung angeben.', session()->getFlashdata('fehler')['bemerkung']);
+
+        $this->assertSame([], $this->zeilen());
+    }
+
     public function test_korrektur_plus_und_minus_aber_nicht_null(): void
     {
         $a = $this->artikelAnlegen();

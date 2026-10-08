@@ -15,7 +15,7 @@
 - Branch `feature/statistik-getraenkewart`, gestapelt auf `feature/stufe-2-getraenkewart` (nach dessen Task 11). Commits auf Deutsch.
 - Alle Invarianten aus `CLAUDE.md` „Konventionen & Invarianten“ gelten (Zeit nur über `service('uhr')->jetzt()`, Rechte nur über Filter + `ZugriffsschutzTest::ROUTEN`, ein `.btn-vdst` pro Seite, `esc()`, keine Inline-Styles/-Handler, deutsche Texte, Cent-INT).
 - Geldsummen in SQL immer `menge * CAST(einzelpreis_cent AS SIGNED)`; Anzeige über `formatiere_cent`.
-- Verkauft = Summe `menge` **nicht stornierter** Buchungen **inkl.** `quelle = korrektur`.
+- Verkauft = Summe `menge` **nicht stornierter, bestandswirksamer** Buchungen (`bestandswirksam = 1`; Korrekturbuchungen nur, wenn der Wart sie als bestandswirksam markiert hat).
 - Fenster „letzte 28 Tage“ = (jetzt − 28 Tage, jetzt]; Grundlage-Tage = min(28, Tage seit `inbetriebnahme_at`), mindestens 1.
 - Vorschlag = ⌈Tagesverbrauch × `reichweite_tage` + `mindestbestand` − Bestand⌉; ≤ 0 → kein Vorschlag; mit `gebinde_groesse` auf volle Kisten aufrunden.
 - Unerklärte Differenz = Σ |`differenz_cent`| der Positionen mit `differenz < 0` und `start = 0`; bei `auszaehlungen.art = start` 0; Überschüsse getrennt.

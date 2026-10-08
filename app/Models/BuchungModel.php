@@ -19,7 +19,7 @@ class BuchungModel extends Model
     protected $useTimestamps = true;
     protected $allowedFields = [
         'vorgang_id', 'konto_id', 'artikel_id', 'menge', 'einzelpreis_cent', 'quelle',
-        'gebucht_von_id', 'geraet_id', 'gebucht_at', 'storniert_at', 'storniert_von_id', 'storno_grund', 'bemerkung',
+        'gebucht_von_id', 'geraet_id', 'gebucht_at', 'storniert_at', 'storniert_von_id', 'storno_grund', 'bemerkung', 'bestandswirksam',
     ];
 
     /**

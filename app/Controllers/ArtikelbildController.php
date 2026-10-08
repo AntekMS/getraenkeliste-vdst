@@ -11,7 +11,7 @@ use CodeIgniter\HTTP\ResponseInterface;
 
 /**
  * `GET artikelbild/<id>` (Filter `bild`): liefert das gespeicherte Bild. Der Dateiname kommt nur aus der DB;
- * auch archivierte Artikel behalten ihr Bild. Die URL trägt `?v=<bild_version>`, daher langes Caching.
+ * auch archivierte Artikel behalten ihr Bild. Die URL trägt `?v=<bild_version>-<Dateianfang>`, daher langes Caching.
  */
 class ArtikelbildController extends BaseController
 {
@@ -26,7 +26,7 @@ class ArtikelbildController extends BaseController
 
         return $this->response
             ->setStatusCode(200)
-            ->setContentType(Artikelbild::contentType($pfad))
+            ->setContentType(Artikelbild::contentType($pfad), '') // ohne charset (Binärdaten)
             ->removeHeader('Cache-Control') // Standard der Response ist no-store; setHeader würde anhängen
             ->setHeader('Cache-Control', 'private, max-age=31536000, immutable')
             ->setHeader('X-Content-Type-Options', 'nosniff')

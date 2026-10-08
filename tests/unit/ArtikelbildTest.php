@@ -33,8 +33,17 @@ final class ArtikelbildTest extends CIUnitTestCase
 
     public function test_url_mit_version_oder_null(): void
     {
-        $this->assertSame('artikelbild/7?v=3', Artikelbild::url(['id' => '7', 'bild_datei' => str_repeat('a', 32) . '.jpg', 'bild_version' => '3']));
+        $this->assertSame('artikelbild/7?v=3-abcdef01', Artikelbild::url(['id' => '7', 'bild_datei' => 'abcdef01' . str_repeat('a', 24) . '.jpg', 'bild_version' => '3']));
         $this->assertNull(Artikelbild::url(['id' => 7, 'bild_datei' => null, 'bild_version' => 3]));
+    }
+
+    public function test_verschiedene_dateien_mit_gleicher_version_ergeben_verschiedene_urls(): void
+    {
+        // z. B. nach einem Restore: gleiche Version, aber anderes Bild → der Browser-Cache darf nicht greifen.
+        $erste  = Artikelbild::url(['id' => 7, 'bild_datei' => str_repeat('a', 32) . '.jpg', 'bild_version' => 2]);
+        $zweite = Artikelbild::url(['id' => 7, 'bild_datei' => str_repeat('b', 32) . '.jpg', 'bild_version' => 2]);
+
+        $this->assertNotSame($erste, $zweite);
     }
 
     public function test_content_type_aus_der_endung(): void

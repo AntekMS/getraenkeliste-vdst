@@ -280,13 +280,15 @@ class BuchungService
 
     /**
      * Korrekturbuchung des Warts (Konto, Artikel, ±Menge ≠ 0, Bemerkung Pflicht): aktueller Preis, neue Vorgangs-ID,
+     * standardmäßig nur für den Betrag (`bestandswirksam = false`; mit true zählt sie auch für Bestand, Soll und Verkauf),
      * Bereichssperre als erste Anweisung der Transaktion, Einfrieren geprüft, protokolliert. Archivierte Artikel sind erlaubt.
      *
-     * @param int $bereichId der Artikel muss zu diesem Bereich gehören
+     * @param int  $bereichId       der Artikel muss zu diesem Bereich gehören
+     * @param bool $bestandswirksam Ware wurde tatsächlich entnommen bzw. zurückgegeben
      *
      * @return array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool, storniert: bool}
      */
-    public function bucheKorrektur(int $kontoId, int $artikelId, int $menge, string $bemerkung, int $wartId, int $bereichId): array
+    public function bucheKorrektur(int $kontoId, int $artikelId, int $menge, string $bemerkung, int $wartId, int $bereichId, bool $bestandswirksam): array
     {
         $bemerkung = trim($bemerkung);
 
@@ -322,7 +324,7 @@ class BuchungService
         $model     = new BuchungModel();
 
         try {
-            $model->transaktion(function () use ($model, $artikel, $kontoId, $artikelId, $menge, $bemerkung, $wartId, $vorgangId): void {
+            $model->transaktion(function () use ($model, $artikel, $kontoId, $artikelId, $menge, $bemerkung, $wartId, $vorgangId, $bestandswirksam): void {
                 $this->sperreBereiche([(int) $artikel['bereich_id']], $vorgangId);
                 $jetzt = service('uhr')->jetzt();
 
@@ -341,6 +343,7 @@ class BuchungService
                     'geraet_id'        => null,
                     'gebucht_at'       => $jetzt->format(self::FORMAT),
                     'bemerkung'        => $bemerkung,
+                    'bestandswirksam'  => $bestandswirksam ? 1 : 0,
                 ];
                 $id = $model->insert($zeile, true);
 

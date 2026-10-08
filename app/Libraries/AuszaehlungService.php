@@ -45,13 +45,16 @@ class AuszaehlungService
         $ids      = array_map(static fn (array $a): int => (int) $a['id'], $artikel);
         $aggregat = service('bestand')->aggregat($bereichId, $ids, $stichtag);
 
+        // Start = keine Position in der letzten abgeschlossenen Auszählung: Der Anfangsbestand 0 ist dann unbekannt,
+        // die Differenz zählt nicht als Schwund (auch wenn der Artikel in einer älteren Auszählung schon gezählt wurde).
         $frueher = [];
+        $letzte  = (new AuszaehlungModel())->letzteAbgeschlossene($bereichId);
 
-        foreach ($db->table('auszaehlung_positionen p')->select('p.artikel_id')->distinct()
-            ->join('auszaehlungen au', 'au.id = p.auszaehlung_id')
-            ->where('au.bereich_id', $bereichId)->where('au.status', 'abgeschlossen')
-            ->whereIn('p.artikel_id', $ids)->get()->getResultArray() as $p) {
-            $frueher[(int) $p['artikel_id']] = true;
+        if ($letzte !== null) {
+            foreach ($db->table('auszaehlung_positionen')->select('artikel_id')
+                ->where('auszaehlung_id', $letzte['id'])->whereIn('artikel_id', $ids)->get()->getResultArray() as $p) {
+                $frueher[(int) $p['artikel_id']] = true;
+            }
         }
 
         $ergebnis = [];
@@ -207,10 +210,21 @@ class AuszaehlungService
         return $pfad;
     }
 
+    /**
+     * Erzeugt die Datei und speichert den Pfad. Hat sich der Name geändert, wird die alte Datei nach dem Update gelöscht
+     * (nur wenn sie per `AuszaehlungExport::datei()` unter `exporte/` liegt).
+     */
     private function speichereDatei(int $auszaehlungId): string
     {
-        $pfad = service('auszaehlungExport')->erzeuge($auszaehlungId);
-        (new AuszaehlungModel())->update($auszaehlungId, ['datei_pfad' => $pfad]);
+        $model  = new AuszaehlungModel();
+        $export = service('auszaehlungExport');
+        $alt    = $model->find($auszaehlungId)['datei_pfad'] ?? null;
+        $pfad   = $export->erzeuge($auszaehlungId);
+        $model->update($auszaehlungId, ['datei_pfad' => $pfad]);
+
+        if ($alt !== null && $alt !== $pfad && ($alteDatei = $export->datei((string) $alt)) !== null && $alteDatei !== $export->datei($pfad)) {
+            @unlink($alteDatei);
+        }
 
         return $pfad;
     }

@@ -39,7 +39,7 @@ Auf diesem Rechner gibt es **kein Host-PHP/Composer** — alles im Web-Container
   nicht mit CRLF ankommen.
 
 ## Architektur-Landkarte
-Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
+Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
 - `app/Config/` — angepasst: `App` (Europe/Berlin, Locale `de`, kein `index.php` in URLs),
   `Security` (CSRF `session`), `Session`, `Cookie`, `Filters` (`csrf` global), `Database`
   (liest `DB_HOST/DB_NAME/DB_USER/DB_PASS` aus der Compose-Umgebung)
@@ -49,7 +49,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   inaktiv, Sammelkonten Couleur/Bund, Einstellungs-Defaults, `inbetriebnahme_at` = jetzt),
   Stufe 2: 2026-10-06-000001 Bestand (`buchungen.bemerkung`, `bestandsbewegungen`, `auszaehlungen`,
   `auszaehlung_positionen` mit `start`-Flag und `ist` NULL im Entwurf), 2026-10-07-000001 Artikelbild (`artikel.bild_datei` VARCHAR(64) NULL,
-  `artikel.bild_version` INT UNSIGNED DEFAULT 0).
+  `artikel.bild_version` INT UNSIGNED DEFAULT 0), 2026-10-08-000001 Bestandswirksam (`buchungen.bestandswirksam` TINYINT(1) NOT NULL DEFAULT 1).
   Raw-SQL, InnoDB, utf8mb4_unicode_ci, FKs `ON DELETE RESTRICT`. Migrationen referenzieren
   **keine** App-Klassen (Konstanten werden wiederholt; `MigrationTest` prüft sie gegen die App).
 - `app/Models/` — CI4-Models (`array`, `$useTimestamps`): `PersonModel` (`rollen`,
@@ -91,8 +91,8 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   `angemeldet` + `recht:<aktion>@<bereich>`; `RechtFilter` trennt am ersten `@`, leerer Bereich → 403). Der Controller bekommt den Schlüssel als Argument und
   liefert 404 für unbekannte/inaktive Bereiche (Kiosk bis Stufe 3; Getränkewart bekommt dort 403, Admin 404). `GET wart/<bereich>/bestand` (`BestandController`,
   View `wart/bestand`, Ampel über `badge-status-*`). `Libraries/BestandService` (Service `bestand()`): `fuerBereich(bereichId)` (je Kategorie, nur `bestand_fuehren`
-  und nicht archiviert) und `einzeln(artikelId)`; Bestand = Ist der letzten abgeschlossenen Position (sonst 0) + Bewegungen − nicht stornierte Buchungsmengen
-  im laufenden Zeitraum (`zeitraeume()`), über Aggregatabfragen. Navigation „Getränkewart“ nur mit `darf(…, bestand_pflegen, getraenke)`.
+  und nicht archiviert) und `einzeln(artikelId)`; Bestand = Ist der letzten abgeschlossenen Position (sonst 0) + Bewegungen − nicht stornierte, **bestandswirksame** Buchungsmengen
+  (`bestandswirksam = 1`) im laufenden Zeitraum (`zeitraeume()`), über Aggregatabfragen. Navigation „Getränkewart“ nur mit `darf(…, bestand_pflegen, getraenke)`.
 - Bewegungen (Stufe 2, Task 5): `GET/POST wart/<bereich>/lieferung` und `…/bewegung` (`Wart\BewegungenController`, Views `wart/lieferung`, `wart/bewegung`,
   `public/js/lieferung.js` für weitere Zeilen aus `<template>`). `BestandService::liefere` (Kisten × Gebinde + Stück, optional EK je Stück, alles oder nichts,
   Feldfehler `zeilen.<i>.<feld>`) und `bucheBewegung` (`schwund` positiv eingegeben → negativ gespeichert, `korrektur` ±, nie 0, Bemerkung Pflicht). Beide laufen
@@ -103,15 +103,17 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   `wart/buchungen`, `wart/korrektur`, Recht `buchungen_verwalten@<bereich>`). Liste = laufender Zeitraum des Bereichs (`BuchungModel::imZeitraum`, Filter
   `person`/`artikel`/`tag` mit gehärteten Parametern, 50 je Seite). `BuchungService::storniereAlsWart` (Grund Pflicht, keine Storno-Frist, Einfrieren + Bereichssperre,
   setzt `storno_grund`, Protokoll `storniert`) und `bucheKorrektur` (`quelle = korrektur`, aktueller Preis, Menge ±1…99, Bemerkung Pflicht, archivierte Artikel erlaubt,
-  Protokoll `korrektur`; optionaler `$bereichId` erzwingt den Bereich). Beide sperren zuerst den Bereich (S2-R1). MySQL 1205/1213 → `BuchungAbgelehnt`/`BewegungAbgelehnt`
+  Protokoll `korrektur`; `$bereichId` erzwingt den Bereich; Pflicht-Parameter `bool $bestandswirksam` → Spalte `bestandswirksam`, Formular-Checkbox `bestandswirksam`
+  standardmäßig **aus** = Korrektur ändert nur den Betrag; web/tablet-Buchungen immer 1; steht im Protokoll). **Bestand/Soll/Verkauf** zählen nur `bestandswirksam = 1`
+  (`BestandService::aggregat`), Geldbeträge (offener Betrag, Abrechnung, Positionen) alle nicht stornierten Buchungen. Beide sperren zuerst den Bereich (S2-R1). MySQL 1205/1213 → `BuchungAbgelehnt`/`BewegungAbgelehnt`
   „Gerade wird abgerechnet – bitte gleich erneut versuchen.“ über `BuchungService::sperrfehlerAbgelehnt`. Summen mit negativer Menge: `einzelpreis_cent` ist UNSIGNED →
   in SQL immer `CAST(einzelpreis_cent AS SIGNED)` vor der Multiplikation. Testhelfer `DbTestCase::beiGesperrtemBereich()` (zweite Verbindung hält die Bereichszeile).
   Lieferung: Menge je Zeile ≤ 1 000 000 (sonst Feldfehler „Menge zu groß.“).
 - Auszählung Entwurf (Stufe 2, Task 7): `GET/POST wart/<bereich>/auszaehlung` (`Wart\AuszaehlungController`, View `wart/auszaehlung_formular`, `public/js/auszaehlung.js` = Differenz live aus `data-soll`,
   Recht `auszaehlung_durchfuehren@<bereich>`; POST `aktion=entwurf|abschliessen` über zwei Submit-Knöpfe, Entwurf zuerst im DOM). `Libraries/AuszaehlungService` (Service `auszaehlungen()`): `vorschlag(bereichId, stichtag)` = Soll je Artikel
   über **`BestandService::aggregat(bereichId, artikelIds, ?bis)`** (einzige Quelle für Anfangsbestand/Lieferungen/Schwund/Korrekturen/Verkauf; auch die Bestandsseite rechnet damit, `AuszaehlungServiceTest` pinnt Soll = Bestand)
-  (Anfangsbestand = Ist der letzten abgeschlossenen Auszählung, Lieferungen/Schwund/Korrekturen/Verkauf im Fenster Beginn (inkl. nur ohne Abschluss) … Stichtag inklusive, `start` = Artikel hatte keine Position in einer
-  abgeschlossenen Auszählung; archivierte nur mit Aktivität), `speichereEntwurf` (höchstens ein Entwurf je Bereich, Positionen werden ersetzt, Soll als Momentaufnahme, `ist` NULL = ungezählt; Bereichssperre zuerst,
+  (Anfangsbestand = Ist der letzten abgeschlossenen Auszählung, Lieferungen/Schwund/Korrekturen/Verkauf im Fenster Beginn (inkl. nur ohne Abschluss) … Stichtag inklusive, `start` = Artikel hat keine Position in der
+  **letzten** abgeschlossenen Auszählung (dann ist der Anfangsbestand 0 unbekannt); archivierte nur mit Aktivität), `speichereEntwurf` (höchstens ein Entwurf je Bereich, Positionen werden ersetzt, Soll als Momentaufnahme, `ist` NULL = ungezählt; Bereichssperre zuerst,
   Stichtag frisch geprüft, 1205/1213 → „Gerade wird abgerechnet …“; fachliche Fehler = `AuszaehlungAbgelehnt` mit Feldfehlern `stichtag`/`ist.<id>`). Stichtag-Eingabe `datetime-local` (Minutengenauigkeit),
   Bemerkung ≤ 1000 Zeichen, Array-Parameter zählen als leer. „Stichtag übernehmen“ = GET `?stichtag=` (lädt das Soll neu; getippte Ist-Werte gehen verloren, gespeicherte Entwurfswerte bleiben sichtbar). Das versteckte Feld im POST-Formular gilt; JS zeigt nur einen Hinweis bei abweichendem Datum.
 - Excel-Export (Stufe 2, Task 8): `Libraries/AuszaehlungExport` (Service `auszaehlungExport()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`; Tests nutzen ein Temp-Verzeichnis):
@@ -129,7 +131,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   `vorschlag()`** (nie aus dem Entwurf), Ist für jeden Artikel Pflicht („Bitte für jeden Artikel einen Ist-Wert eintragen.“, Feldfehler `ist.<id>` = `MELDUNG_IST_FEHLT`), Entwurf wird
   zur abgeschlossenen Auszählung (sonst neu), `erstellt_von_id` = wer abschließt (Liste/Excel zeigen es als „abgeschlossen von“), Protokoll `abgeschlossen`. **Nach** dem Commit
   `vergiss()` und Export in `try/catch(Throwable)` → `datei_pfad`; Fehler → `log_message('error')`, `datei_pfad` bleibt NULL, Controller fragt `dateiFehlt(id)` und setzt zusätzlich
-  Flash `error`. `dateiNeuErzeugen(id, ?personId)` (Protokoll `datei_erzeugt`). Routen: `GET wart/<bereich>/auszaehlungen` (View `wart/auszaehlungen`, neueste zuerst, `AuszaehlungModel::liste`)
+  Flash `error`. `dateiNeuErzeugen(id, ?personId)` (Protokoll `datei_erzeugt`; ändert sich der Pfad, wird die alte Datei nach dem DB-Update gelöscht, nur wenn `AuszaehlungExport::datei()` sie unter `exporte/` findet). Routen: `GET wart/<bereich>/auszaehlungen` (View `wart/auszaehlungen`, neueste zuerst, `AuszaehlungModel::liste`)
   und `GET …/auszaehlungen/(:num)/download` mit `recht:auszaehlung_ansehen@<bereich>`, `POST …/auszaehlungen/(:num)/neu-erzeugen` mit `auszaehlung_durchfuehren`; Entwurf/fremder
   Bereich/unbekannt → 404; fehlende Datei → Redirect zur Liste mit Flash. Download = `response->download($pfad, null, true)->setFileName(basename)`. Rückfragen über
   `data-confirm` an Submit-Knopf oder Formular (`public/js/app.js`, delegiert, keine Inline-Handler; Cache-Buster siehe Task 10).
@@ -137,6 +139,8 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   `auszaehlungen` (Liste, `…/(:num)/download`, `…/neu-erzeugen`). Rechte nur über Filter `recht:<aktion>@<bereich>`; Zeiträume (`Zeitraeume`), Einfrieren und Bereichssperre
   gelten für Buchen, Storno, Bewegungen, Korrektur und Abschluss gleich. Exporte (`.xlsx`, `format_version getraenkeliste-auszaehlung/1`) liegen in `writable/exporte/`
   (im Backup enthalten, `datei_pfad` relativ), Download nur aus diesem Verzeichnis (`realpath`-Prüfung). Neue Wart-Routen ⇒ `ZugriffsschutzTest::ROUTEN` ergänzen.
+  Trait `Controllers\Concerns\WartEingaben` (in `Auszaehlung-`, `Bewegungen-`, `BuchungenController`): `bereich(schluessel)` (unbekannt/inaktiv → 404) und `text(wert)` –
+  POST/GET-Werte immer darüber lesen, Array-Parameter (`bemerkung[]=x`) zählen als leer, nie `(string)`-Cast (sonst 500 „Array to string conversion“).
 - Erinnerungsbanner (Stufe 2, Task 10): Partial `layouts/erinnerung.php` (in `layouts/main.php`, nicht in `einfach`/Tablet) ruft `Zeitraeume::erinnerungen(rollen)`:
   je **aktivem** Bereich mit Recht `auszaehlung_durchfuehren` und `tageSeitLetztemAbschluss` (volle Kalendertage ab Stichtag, sonst Inbetriebnahme, via `uhr`) > `erinnerung_tage`
   ein `.alert-warning` (ohne Auto-Dismiss) „Die letzte Auszählung ist <n> Tage her.“ bzw. „Es gab noch keine Auszählung.“ + Link `wart/<bereich>/auszaehlung`.
@@ -148,11 +152,11 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   Transparenz (Pixel-Scan nach dem Verkleinern), Name `bin2hex(random_bytes(16))`.jpg/.png, Temp-Datei + `rename`), `uebernehme(artikelId, ?datei, personId)` (in einer
   Transaktion: `SELECT … FOR UPDATE`, setzt `bild_datei`, `bild_version + 1`, Protokoll `bild_geaendert`/`bild_entfernt` mit `neu = {bild_version}`, liefert die alte Datei),
   `wechsle(neueDatei, arbeit)` (Artikel-Transaktion; Fehler → neue Datei löschen, alte erst nach dem Commit), `speichere`/`entferne` (Kurzformen), `pfad` (nur Namen
-  `[0-9a-f]{32}.(jpg|png)` und vorhandene Datei), statisch `url(artikel)` → `artikelbild/<id>?v=<version>` oder null. Admin-Formular (`StammdatenController`, `multipart/form-data`,
+  `[0-9a-f]{32}.(jpg|png)` und vorhandene Datei), statisch `url(artikel)` → `artikelbild/<id>?v=<version>-<erste 8 Zeichen von bild_datei>` (eindeutig auch nach Restore) oder null. Admin-Formular (`StammdatenController`, `multipart/form-data`,
   Feld `bild`, Checkbox `bild_entfernen`, Vorschau): Felder zuerst prüfen, dann Bild schreiben, dann eine Transaktion für Felder + Bild; Bildfehler als Flash `fehler['bild']`;
   neues Bild schlägt „entfernen“. Route `GET artikelbild/(:num)` (`ArtikelbildController`, Filter **`bild`** = `BildFilter`: Session-Person **oder** gültiges, nicht gesperrtes
   Geräte-Cookie über `Geraete::istGueltigesToken` (nur lesend), sonst 403 ohne Redirect); Antwort mit `Cache-Control: private, max-age=31536000, immutable` (vorher
-  `removeHeader`, sonst hängt CI an `no-store` an), `nosniff`, `inline`; fehlende Datei/kein Bild → 404; archivierte Artikel behalten ihr Bild. `ArtikelModel::buchbar` liefert
+  `removeHeader`, sonst hängt CI an `no-store` an), `Content-Type` ohne charset (`setContentType($mime, '')`), `nosniff`, `inline`; fehlende Datei/kein Bild → 404; archivierte Artikel behalten ihr Bild. `ArtikelModel::buchbar` liefert
   `bild_url`, `buchen/_artikel.php` zeigt `<img class="artikel-bild" … alt="" loading="lazy">` (CSS 4:3, `object-fit: cover`; `app.css?v=4`). Dockerfile: GD mit
   `--with-webp` (`libwebp-dev`) und Erweiterung `exif` – Image-Änderung erst nach `docker compose up -d --build --force-recreate getraenkeliste-web` aktiv.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem

@@ -149,6 +149,84 @@ final class WartBuchungenTest extends DbTestCase
         $this->seeInDatabase('protokoll', ['person_id' => $this->wart, 'aktion' => 'korrektur', 'tabelle' => 'buchungen', 'datensatz_id' => (int) $zeile['id']]);
     }
 
+    public function test_korrektur_ohne_haken_aendert_nur_den_betrag(): void
+    {
+        $this->artikel = $this->artikelAnlegen(['name' => 'Kiste', 'bestand_fuehren' => 1]);
+        $this->buchung($this->konto, $this->artikel, '2026-10-05 10:00:00', 5);
+        $bereich    = $this->bereichId('getraenke');
+        $bestand    = service('bestand')->einzeln($this->artikel);
+        $soll       = fn (): int => array_column(service('auszaehlungen')->vorschlag($bereich, service('uhr')->jetzt()), 'soll', 'artikel_id')[$this->artikel];
+        $sollVorher = $soll();
+
+        $this->sende('wart/getraenke/korrektur', [
+            'konto_id' => (string) $this->konto, 'artikel_id' => (string) $this->artikel, 'menge' => '-2', 'bemerkung' => 'Falsch gebucht',
+        ])->assertRedirectTo(site_url('wart/getraenke/buchungen'));
+
+        $zeile = db_connect()->table('buchungen')->where('quelle', 'korrektur')->get()->getRowArray();
+        $this->assertSame('0', (string) $zeile['bestandswirksam']);
+        service('zeitraeume')->vergiss();
+        $this->assertSame(450, (new \App\Models\BuchungModel())->offenerBetrag($this->konto, 'getraenke', service('zeitraeume')->beginn($bereich), service('zeitraeume')->beginnInklusiv($bereich)));
+        $this->assertSame($bestand, service('bestand')->einzeln($this->artikel));
+        $this->assertSame($sollVorher, $soll());
+        $protokoll = json_decode((string) db_connect()->table('protokoll')->where('aktion', 'korrektur')->get()->getRow()->neu, true);
+        $this->assertSame(0, $protokoll['bestandswirksam']);
+    }
+
+    public function test_korrektur_mit_haken_zaehlt_fuer_den_bestand(): void
+    {
+        $this->artikel = $this->artikelAnlegen(['name' => 'Kiste', 'bestand_fuehren' => 1]);
+        $this->buchung($this->konto, $this->artikel, '2026-10-05 10:00:00', 5);
+        $bereich = $this->bereichId('getraenke');
+        $vorher  = service('bestand')->einzeln($this->artikel);
+        $soll    = fn (): int => array_column(service('auszaehlungen')->vorschlag($bereich, service('uhr')->jetzt()), 'soll', 'artikel_id')[$this->artikel];
+        $sollVorher = $soll();
+
+        $this->sende('wart/getraenke/korrektur', [
+            'konto_id' => (string) $this->konto, 'artikel_id' => (string) $this->artikel, 'menge' => '-2', 'bemerkung' => 'Zurückgegeben',
+            'bestandswirksam' => '1',
+        ])->assertRedirectTo(site_url('wart/getraenke/buchungen'));
+
+        service('zeitraeume')->vergiss();
+        $this->assertSame('1', (string) db_connect()->table('buchungen')->where('quelle', 'korrektur')->get()->getRow()->bestandswirksam);
+        $this->assertSame($vorher + 2, service('bestand')->einzeln($this->artikel));
+        $this->assertSame($sollVorher + 2, $soll());
+    }
+
+    public function test_korrekturformular_hat_checkbox_standardmaessig_aus(): void
+    {
+        $antwort = $this->alsAngemeldet($this->wart)->get('wart/getraenke/korrektur');
+
+        $antwort->assertOK();
+        $antwort->assertSee('name="bestandswirksam"', null);
+        $antwort->assertDontSee('name="bestandswirksam" value="1" checked', null);
+        $antwort->assertSee('Ohne Haken ändert die Korrektur nur den Betrag des Kontos.');
+    }
+
+    public function test_korrektur_mit_array_parametern_ist_kein_500(): void
+    {
+        $this->sende('wart/getraenke/korrektur', [
+            'konto_id' => (string) $this->konto, 'artikel_id' => (string) $this->artikel, 'menge' => ['1'], 'bemerkung' => ['x'],
+        ])->assertRedirectTo(site_url('wart/getraenke/korrektur'));
+
+        $this->assertSame(['menge' => 'Bitte eine ganze Zahl angeben, z. B. -2.'], session()->getFlashdata('fehler'));
+
+        $this->sende('wart/getraenke/korrektur', [
+            'konto_id' => (string) $this->konto, 'artikel_id' => (string) $this->artikel, 'menge' => '1', 'bemerkung' => ['x'],
+        ])->assertRedirectTo(site_url('wart/getraenke/korrektur'));
+
+        $this->assertSame('Bitte eine Bemerkung angeben.', session()->getFlashdata('error'));
+        $this->seeNumRecords(0, 'buchungen', []);
+    }
+
+    public function test_wart_storno_mit_array_grund_ist_kein_500(): void
+    {
+        $id = $this->buchung($this->konto, $this->artikel, '2026-10-05 10:00:00');
+
+        $this->sende("wart/getraenke/buchungen/{$id}/storno", ['grund' => ['x']])->assertRedirectTo(site_url('wart/getraenke/buchungen'));
+
+        $this->seeNumRecords(1, 'buchungen', ['storniert_at' => null]);
+    }
+
     public function test_korrektur_menge_null_ohne_bemerkung_und_fremder_artikel_abgelehnt(): void
     {
         $kioskKat = (int) (new \App\Models\KategorieModel())->insert(['bereich_id' => $this->bereichId('kiosk'), 'name' => 'Snacks'], true);

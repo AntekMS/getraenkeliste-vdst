@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace App\Controllers\Wart;
 
 use App\Controllers\BaseController;
+use App\Controllers\Concerns\WartEingaben;
 use App\Libraries\BuchungAbgelehnt;
-use App\Models\BereichModel;
 use App\Models\BuchungModel;
 use App\Models\PersonModel;
-use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\HTTP\RedirectResponse;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -20,6 +19,8 @@ use DateTimeZone;
  */
 class BuchungenController extends BaseController
 {
+    use WartEingaben;
+
     private const JE_SEITE = 50;
 
     public function index(string $bereichSchluessel): string
@@ -69,7 +70,7 @@ class BuchungenController extends BaseController
 
 
         try {
-            service('buchungen')->storniereAlsWart($buchung, $this->personId(), (string) $this->request->getPost('grund'), (int) $bereich['id']);
+            service('buchungen')->storniereAlsWart($buchung, $this->personId(), $this->text($this->request->getPost('grund')), (int) $bereich['id']);
         } catch (BuchungAbgelehnt $e) {
             return $zurueck->with('error', $e->getMessage());
         }
@@ -92,7 +93,7 @@ class BuchungenController extends BaseController
     {
         $bereich = $this->bereich($bereichSchluessel);
         $zurueck = redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/korrektur'))->withInput();
-        $menge   = trim((string) $this->request->getPost('menge'));
+        $menge   = trim($this->text($this->request->getPost('menge')));
         $fehler  = [];
 
         if (preg_match('/^-?\d{1,4}$/', $menge) !== 1) {
@@ -108,9 +109,10 @@ class BuchungenController extends BaseController
                 $this->ganzzahl($this->request->getPost('konto_id')),
                 $this->ganzzahl($this->request->getPost('artikel_id')),
                 (int) $menge,
-                (string) $this->request->getPost('bemerkung'),
+                $this->text($this->request->getPost('bemerkung')),
                 $this->personId(),
                 (int) $bereich['id'],
+                $this->text($this->request->getPost('bestandswirksam')) === '1',
             );
         } catch (BuchungAbgelehnt $e) {
             return $zurueck->with('error', $e->getMessage());
@@ -170,19 +172,5 @@ class BuchungenController extends BaseController
     private function personId(): int
     {
         return (int) service('anmeldung')->person()['id'];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function bereich(string $schluessel): array
-    {
-        $bereich = (new BereichModel())->where('schluessel', $schluessel)->where('aktiv', 1)->first();
-
-        if ($bereich === null) {
-            throw PageNotFoundException::forPageNotFound();
-        }
-
-        return $bereich;
     }
 }

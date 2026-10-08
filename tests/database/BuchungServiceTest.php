@@ -536,7 +536,7 @@ final class BuchungServiceTest extends DbTestCase
             'storno vorgang'  => static fn () => service('buchungen')->storniereVorgang(self::V2, $konto),
             'storno buchung'  => static fn () => service('buchungen')->storniereBuchung($id, $konto),
             'storno wart'     => static fn () => service('buchungen')->storniereAlsWart($id, $wart, 'Irrtum', $bereich),
-            'korrektur'       => static fn () => service('buchungen')->bucheKorrektur($konto, $helles, -1, 'Fehler', $wart, $bereich),
+            'korrektur'       => static fn () => service('buchungen')->bucheKorrektur($konto, $helles, -1, 'Fehler', $wart, $bereich, false),
         ];
 
         $this->beiGesperrtemBereich($bereich, function () use ($versuche, $meldung): void {
@@ -572,7 +572,7 @@ final class BuchungServiceTest extends DbTestCase
         }
 
         try {
-            service('buchungen')->bucheKorrektur($konto, $helles, 1, 'x', $wart, $kiosk);
+            service('buchungen')->bucheKorrektur($konto, $helles, 1, 'x', $wart, $kiosk, true);
             $this->fail('Ablehnung erwartet');
         } catch (BuchungAbgelehnt $e) {
             $this->assertSame('Bitte einen Artikel dieses Bereichs wählen.', $e->getMessage());

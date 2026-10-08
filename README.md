@@ -87,6 +87,8 @@ Menü „Getränkewart“ (Rolle `getraenkewart` bzw. Admin):
 - **Bestand** mit Ampel (ok / niedrig / leer / negativ), **Lieferung** erfassen (Kisten × Gebinde + Stück,
   optional Einkaufspreis), **Schwund/Korrektur** als Bestandsbewegung mit Pflichtbemerkung.
 - **Buchungen** des laufenden Zeitraums einsehen, stornieren (Grund Pflicht, keine Frist) und Korrekturbuchungen anlegen.
+  Eine Korrektur ändert standardmäßig nur den Betrag des Kontos; mit dem Haken „Ware wurde tatsächlich entnommen bzw.
+  zurückgegeben“ zählt sie auch für Bestand und Auszählung.
 - **Auszählung**: Ist-Werte eintragen (Entwurf speichern, später abschließen). Der Abschluss legt den Stichtag fest, friert
   den Zeitraum ein und erzeugt eine Excel-Datei fürs Kassensystem; **Auszählungen** listet alle Abschlüsse mit Download
   und „Datei neu erzeugen“.

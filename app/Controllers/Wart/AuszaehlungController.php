@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Controllers\Wart;
 
 use App\Controllers\BaseController;
+use App\Controllers\Concerns\WartEingaben;
 use App\Libraries\AuszaehlungAbgelehnt;
 use App\Libraries\AuszaehlungRechner;
 use App\Libraries\AuszaehlungService;
 use App\Libraries\Berechtigung;
 use App\Models\AuszaehlungModel;
 use App\Models\AuszaehlungPositionModel;
-use App\Models\BereichModel;
 use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\HTTP\DownloadResponse;
 use CodeIgniter\HTTP\RedirectResponse;
@@ -25,6 +25,8 @@ use Throwable;
  */
 class AuszaehlungController extends BaseController
 {
+    use WartEingaben;
+
     private const MELDUNG_STICHTAG = 'Bitte einen gültigen Stichtag angeben.';
 
     public function index(string $bereichSchluessel): string
@@ -238,28 +240,8 @@ class AuszaehlungController extends BaseController
         return $zeit;
     }
 
-    /** Array-Werte (`stichtag[]=…`) zählen als leer, nie als 500. */
-    private function text(mixed $wert): string
-    {
-        return is_scalar($wert) ? (string) $wert : '';
-    }
-
     private function aktuelleMinute(DateTimeImmutable $jetzt): DateTimeImmutable
     {
         return $jetzt->setTime((int) $jetzt->format('H'), (int) $jetzt->format('i'), 0);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function bereich(string $schluessel): array
-    {
-        $bereich = (new BereichModel())->where('schluessel', $schluessel)->where('aktiv', 1)->first();
-
-        if ($bereich === null) {
-            throw PageNotFoundException::forPageNotFound();
-        }
-
-        return $bereich;
     }
 }

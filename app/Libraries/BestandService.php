@@ -11,8 +11,8 @@ use CodeIgniter\Database\Exceptions\DatabaseException;
 
 /**
  * Laufender Bestand je Artikel (Spec 6.2): Ist der letzten abgeschlossenen Auszählung (sonst 0)
- * + Bewegungen im laufenden Zeitraum − nicht stornierte Buchungsmengen im laufenden Zeitraum
- * (inkl. Korrekturbuchungen). Der Zeitraum kommt aus `zeitraeume()`; je Aufruf wenige Aggregatabfragen.
+ * + Bewegungen im laufenden Zeitraum − nicht stornierte, bestandswirksame Buchungsmengen im laufenden Zeitraum
+ * (Korrekturbuchungen nur mit `bestandswirksam = 1`). Der Zeitraum kommt aus `zeitraeume()`; je Aufruf wenige Aggregatabfragen.
  */
 class BestandService
 {
@@ -291,7 +291,7 @@ class BestandService
     /**
      * Einzige Quelle für Anfangsbestand und Bewegungs-/Verkaufssummen (Bestandsseite und Auszählungs-Soll).
      * Fenster: Beginn des laufenden Zeitraums (inklusiv nur ohne Abschluss) bis `$bis` inklusive (null = offen).
-     * Anfangsbestand = Ist der letzten abgeschlossenen Auszählung (sonst 0); stornierte Buchungen zählen nicht.
+     * Anfangsbestand = Ist der letzten abgeschlossenen Auszählung (sonst 0); stornierte und nicht bestandswirksame Buchungen zählen nicht.
      *
      * @param list<int> $artikelIds
      *
@@ -332,7 +332,8 @@ class BestandService
         };
 
         $q = $db->table('buchungen')->select('artikel_id, SUM(menge) AS summe')
-            ->whereIn('artikel_id', $artikelIds)->where('storniert_at', null)->where("gebucht_at {$vergleich}", $beginn)->groupBy('artikel_id');
+            ->whereIn('artikel_id', $artikelIds)->where('storniert_at', null)->where('bestandswirksam', 1)
+            ->where("gebucht_at {$vergleich}", $beginn)->groupBy('artikel_id');
 
         if ($bis !== null) {
             $q->where('gebucht_at <=', $bis->format('Y-m-d H:i:s'));

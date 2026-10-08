@@ -437,6 +437,14 @@ final class AuszaehlungExportTest extends DbTestCase
 
         $blattText = array_column(array_filter($erklaerungen, static fn (array $e): bool => $e['spalte'] === null), 'erklaerung', 'blatt');
         $this->assertStringContainsString('0 oder negativ', $blattText['Abrechnung']);
+
+        $spaltenText = static fn (string $blatt, string $spalte): string => (string) array_values(array_filter(
+            $erklaerungen,
+            static fn (array $e): bool => $e['blatt'] === $blatt && $e['spalte'] === $spalte,
+        ))[0]['erklaerung'];
+        foreach ([['Bestand', 'verkauft'], ['Buchungen', 'quelle']] as [$blatt, $spalte]) {
+            $this->assertStringContainsString('nur für den Bestand, wenn sie als bestandswirksam markiert wurden', $spaltenText($blatt, $spalte), "{$blatt}.{$spalte}");
+        }
         foreach (['Abrechnung', 'Positionen', 'Buchungen', 'Bestand'] as $blatt) {
             $this->assertStringContainsString('Stammdaten beim Erzeugen', $blattText[$blatt], $blatt);
         }

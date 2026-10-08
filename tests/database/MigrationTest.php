@@ -101,6 +101,18 @@ final class MigrationTest extends DbTestCase
         $this->assertContains('bemerkung', db_connect()->getFieldNames('buchungen'));
     }
 
+    public function test_buchungen_sind_standardmaessig_bestandswirksam(): void
+    {
+        $personId  = $this->personAnlegen();
+        $artikelId = $this->artikelAnlegen();
+        db_connect()->table('buchungen')->insert([
+            'vorgang_id' => '22222222-2222-4222-8222-222222222222', 'konto_id' => $personId, 'artikel_id' => $artikelId,
+            'menge' => 1, 'einzelpreis_cent' => 150, 'quelle' => 'web', 'gebucht_at' => '2026-10-05 12:00:00',
+        ]);
+
+        $this->assertSame('1', (string) db_connect()->table('buchungen')->get()->getRowArray()['bestandswirksam']);
+    }
+
     public function test_eine_position_je_artikel_und_auszaehlung(): void
     {
         $db        = db_connect();
