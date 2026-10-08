@@ -1,6 +1,7 @@
 // Auszählung: Kisten/einzeln zu Stück, Abweichung je Artikel, Fortschritt und Geldsumme in der Aktionsleiste live berechnen;
 // „Abschließen“ erst, wenn alle Artikel gezählt sind; Rückfrage beim Stichtag-Wechsel mit ungespeicherten Zählwerten.
-// Darstellung wie die serverseitige Vorabanzeige in app/Views/wart/auszaehlung_formular.php.
+// Darstellung wie die serverseitige Vorabanzeige in app/Views/wart/auszaehlung_formular.php (die Startanzeige bleibt unangetastet).
+// Bei einer Eingabe wird nur die geänderte Zeile neu geschrieben (aria-live-Zellen sagen sonst unveränderte Zeilen erneut an).
 (function () {
     'use strict';
 
@@ -10,15 +11,19 @@
         return;
     }
 
+    var MAX_STUECK = 999999;
     var DANACH = 'Danach sind alle Buchungen bis zum Stichtag abgerechnet und können nicht mehr geändert werden.';
     var zeilen = Array.prototype.slice.call(formular.querySelectorAll('.js-zeile'));
     var fortschritt = document.getElementById('auszaehlung-fortschritt');
     var summeAnzeige = document.getElementById('auszaehlung-summe');
     var abschliessen = document.getElementById('abschliessen');
     var hinweis = document.getElementById('abschliessen-hinweis');
-    var ungespeichert = false;
+    // Nach einem Validierungsfehler stehen getippte, noch nicht gespeicherte Werte im Formular.
+    var ungespeichert = formular.dataset.ungespeichert === '1';
+    // Abweichung je Zeile (null = nicht gezählt), Grundlage für Fortschritt und Summe.
+    var differenzen = [];
 
-    // Leer → null, keine ganze Zahl ≥ 0 → NaN.
+    // Leer → null; keine ganze Zahl ≥ 0 oder mehr als 6 Stellen → NaN.
     function zahl(feld) {
         var wert = feld ? feld.value.trim() : '';
 
@@ -26,25 +31,31 @@
             return null;
         }
 
-        return /^\d+$/.test(wert) ? parseInt(wert, 10) : NaN;
+        return /^\d{1,6}$/.test(wert) ? parseInt(wert, 10) : NaN;
     }
 
-    // Gezählte Stückzahl der Zeile oder null (nichts oder Ungültiges eingetragen).
+    // Gezählte Stückzahl der Zeile: null = nichts eingetragen, NaN = ungültig (inkl. > 999 999).
     function gezaehlt(zeile) {
+        var stueck;
+
         if (!zeile.dataset.gebinde) {
-            var ist = zahl(zeile.querySelector('.js-ist'));
+            stueck = zahl(zeile.querySelector('.js-ist'));
+        } else {
+            var kisten = zahl(zeile.querySelector('.js-kisten'));
+            var einzeln = zahl(zeile.querySelector('.js-einzeln'));
 
-            return ist === null || isNaN(ist) ? null : ist;
+            if (kisten === null && einzeln === null) {
+                return null;
+            }
+
+            stueck = (kisten || 0) * parseInt(zeile.dataset.gebinde, 10) + (einzeln || 0);
         }
 
-        var kisten = zahl(zeile.querySelector('.js-kisten'));
-        var einzeln = zahl(zeile.querySelector('.js-einzeln'));
+        return stueck !== null && stueck > MAX_STUECK ? NaN : stueck;
+    }
 
-        if ((kisten === null && einzeln === null) || isNaN(kisten) || isNaN(einzeln)) {
-            return null;
-        }
-
-        return (kisten || 0) * parseInt(zeile.dataset.gebinde, 10) + (einzeln || 0);
+    function differenz(stueck, zeile) {
+        return stueck === null || isNaN(stueck) ? null : stueck - parseInt(zeile.dataset.soll, 10);
     }
 
     function euro(cent) {
@@ -53,13 +64,13 @@
         var ganz = String(Math.floor(betrag / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
         var rest = String(betrag % 100);
 
-        return vorzeichen + ganz + ',' + (rest.length < 2 ? '0' + rest : rest) + ' €';
+        return vorzeichen + ganz + ',' + (rest.length < 2 ? '0' + rest : rest) + ' €';
     }
 
-    function abweichungAnzeige(ziel, differenz) {
+    function abweichungAnzeige(ziel, wert) {
         ziel.textContent = '';
 
-        if (differenz === null) {
+        if (wert === null) {
             var strich = document.createElement('span');
             strich.className = 'text-muted';
             strich.textContent = '–';
@@ -69,12 +80,12 @@
 
         var art;
 
-        if (differenz === 0) {
+        if (wert === 0) {
             art = ['badge-status-gruen', 'bi-check-circle', 'stimmt'];
-        } else if (differenz < 0) {
-            art = ['badge-status-rot', 'bi-dash-circle', differenz === -1 ? '1 fehlt' : String(-differenz) + ' fehlen'];
+        } else if (wert < 0) {
+            art = ['badge-status-rot', 'bi-dash-circle', wert === -1 ? '1 fehlt' : String(-wert) + ' fehlen'];
         } else {
-            art = ['badge-status-amber', 'bi-plus-circle', String(differenz) + ' zu viel'];
+            art = ['badge-status-amber', 'bi-plus-circle', String(wert) + ' zu viel'];
         }
 
         var badge = document.createElement('span');
@@ -87,18 +98,28 @@
         ziel.appendChild(badge);
     }
 
-    function aktualisiereZeile(zeile) {
-        var stueck = gezaehlt(zeile);
-        var differenz = stueck === null ? null : stueck - parseInt(zeile.dataset.soll, 10);
-        var stueckAnzeige = zeile.querySelector('.js-stueck');
-
-        if (stueckAnzeige) {
-            stueckAnzeige.textContent = stueck === null ? '' : '= ' + stueck + ' Stück';
+    function setzeText(element, text) {
+        if (element && element.textContent !== text) {
+            element.textContent = text;
         }
+    }
 
-        abweichungAnzeige(zeile.querySelector('.js-abweichung'), differenz);
+    // Nur die bearbeitete Zeile: Felder markieren, „= N Stück“ und Abweichung schreiben, wenn sie sich ändern.
+    function aktualisiereZeile(index) {
+        var zeile = zeilen[index];
+        var stueck = gezaehlt(zeile);
+        var neu = differenz(stueck, zeile);
 
-        return differenz;
+        zeile.querySelectorAll('.js-ist, .js-kisten, .js-einzeln').forEach(function (feld) {
+            feld.classList.toggle('is-invalid', isNaN(stueck));
+        });
+
+        setzeText(zeile.querySelector('.js-stueck'), stueck === null || isNaN(stueck) ? '' : '= ' + stueck + ' Stück');
+
+        if (neu !== differenzen[index]) {
+            differenzen[index] = neu;
+            abweichungAnzeige(zeile.querySelector('.js-abweichung'), neu);
+        }
     }
 
     function aktualisiereLeiste() {
@@ -106,37 +127,46 @@
         var abweichend = 0;
         var cent = 0;
 
-        zeilen.forEach(function (zeile) {
-            var differenz = aktualisiereZeile(zeile);
-
-            if (differenz === null) {
+        differenzen.forEach(function (wert, index) {
+            if (wert === null) {
                 return;
             }
 
             anzahl++;
-            abweichend += differenz === 0 ? 0 : 1;
-            cent += differenz * parseInt(zeile.dataset.preis, 10);
+
+            // „Neu“-Artikel: Abweichung zählt nicht als Schwund – weder in Anzahl noch Summe (Zeile zeigt sie trotzdem).
+            if (wert !== 0 && zeilen[index].dataset.neu !== '1') {
+                abweichend++;
+                cent += wert * parseInt(zeilen[index].dataset.preis, 10);
+            }
         });
 
         var alle = anzahl === zeilen.length;
 
-        fortschritt.textContent = anzahl + ' von ' + zeilen.length + ' gezählt';
-        summeAnzeige.textContent = abweichend === 0 ? 'keine Abweichung' : 'Abweichung: ' + euro(cent);
+        setzeText(fortschritt, anzahl + ' von ' + zeilen.length + ' gezählt');
+        setzeText(summeAnzeige, abweichend === 0 ? 'keine Abweichung' : 'Abweichung: ' + euro(cent));
 
         abschliessen.disabled = !alle;
         hinweis.classList.toggle('d-none', alle);
         abschliessen.dataset.confirm = 'Auszählung jetzt abschließen? ' + (abweichend === 0
-            ? 'Alle Artikel stimmen. '
+            ? (alle ? 'Alle Artikel stimmen. ' : 'Alle gezählten Artikel stimmen. ')
             : abweichend + ' Artikel ' + (abweichend === 1 ? 'weicht' : 'weichen') + ' ab (zusammen ' + euro(cent) + '). ') + DANACH;
     }
 
     formular.addEventListener('input', function (ereignis) {
-        if (ereignis.target.matches('.js-ist, .js-kisten, .js-einzeln, #bemerkung')) {
+        var ziel = ereignis.target;
+
+        if (ziel.matches('.js-ist, .js-kisten, .js-einzeln, #bemerkung')) {
             ungespeichert = true;
         }
 
-        if (ereignis.target.matches('.js-ist, .js-kisten, .js-einzeln')) {
-            aktualisiereLeiste();
+        if (ziel.matches('.js-ist, .js-kisten, .js-einzeln')) {
+            var index = zeilen.indexOf(ziel.closest('.js-zeile'));
+
+            if (index >= 0) {
+                aktualisiereZeile(index);
+                aktualisiereLeiste();
+            }
         }
     });
 
@@ -144,6 +174,10 @@
         ungespeichert = false;
     });
 
+    // Startzustand nur lesen (die Zeilen sind serverseitig vorgerendert), dann die Leiste setzen.
+    zeilen.forEach(function (zeile, index) {
+        differenzen[index] = differenz(gezaehlt(zeile), zeile);
+    });
     aktualisiereLeiste();
 
     // Der geladene Stichtag (verstecktes Feld) gilt; bei Abweichung erscheint ein Hinweis.

@@ -328,7 +328,7 @@ final class AuszaehlungServiceTest extends DbTestCase
             $this->fail('Erwartet: Ablehnung');
         } catch (AuszaehlungAbgelehnt $e) {
             $this->assertSame('Bitte für jeden Artikel eintragen, wie viel du gezählt hast.', $e->getMessage());
-            $this->assertSame(["ist.{$b}" => AuszaehlungService::MELDUNG_IST_FEHLT], $e->fehler);
+            $this->assertSame(["ist.{$b}" => AuszaehlungService::MELDUNG_IST_LEER], $e->fehler);
         }
 
         $this->assertSame(0, db_connect()->table('auszaehlungen')->countAllResults());

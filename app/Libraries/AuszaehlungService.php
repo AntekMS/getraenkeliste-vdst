@@ -21,6 +21,7 @@ class AuszaehlungService
     public const MAX_BEMERKUNG = 1000;
     public const MELDUNG_IST = 'Bitte eine Zahl ab 0 eintragen.';
     public const MELDUNG_IST_FEHLT = 'Bitte für jeden Artikel eintragen, wie viel du gezählt hast.';
+    public const MELDUNG_IST_LEER = 'Bitte eintragen.';
 
     /**
      * Soll je Artikel (Entscheidung 7: bestandsführend; archivierte nur mit Bestand oder Aktivität im Zeitraum),
@@ -142,7 +143,7 @@ class AuszaehlungService
 
             foreach ($positionen as $p) {
                 if ($p['ist'] === null) {
-                    $fehlend["ist.{$p['artikel_id']}"] = self::MELDUNG_IST_FEHLT;
+                    $fehlend["ist.{$p['artikel_id']}"] = self::MELDUNG_IST_LEER;
                 }
             }
 

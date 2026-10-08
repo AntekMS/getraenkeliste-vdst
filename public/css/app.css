@@ -1132,6 +1132,12 @@ tfoot.table-light {
     width: 5.5rem;
     min-height: 2.75rem;
     margin-left: auto;
+    /* fokussiertes Feld nicht unter der festen Aktionsleiste verstecken */
+    scroll-margin-bottom: 8rem;
+}
+
+.auszaehlung-stichtag {
+    min-height: 2.75rem;
 }
 
 .auszaehlung-eingaben {
@@ -1178,6 +1184,10 @@ tfoot.table-light {
 }
 
 @media (max-width: 575.98px) {
+    .auszaehlung-eingabe-gebinde {
+        width: 4.25rem;
+    }
+
     .auszaehlung-leiste-aktionen,
     .auszaehlung-leiste-aktionen .btn {
         flex: 1 1 auto;

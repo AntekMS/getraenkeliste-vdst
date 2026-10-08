@@ -85,10 +85,16 @@ class AuszaehlungController extends BaseController
             $summe['artikel']++;
             $summe['neu'] = $summe['neu'] || (bool) $p['start'];
 
-            if ($zeile['abweichung'] !== null) {
-                $summe['gezaehlt']++;
-                $summe['abweichend'] += $zeile['abweichung'] === 0 ? 0 : 1;
-                $summe['cent']       += $zeile['abweichung'] * (int) $p['preis_cent'];
+            if ($zeile['abweichung'] === null) {
+                continue;
+            }
+
+            $summe['gezaehlt']++;
+
+            // „Neu“-Artikel (start): Abweichung zählt nicht als Schwund, daher weder in Anzahl noch Geldsumme.
+            if (! $p['start'] && $zeile['abweichung'] !== 0) {
+                $summe['abweichend']++;
+                $summe['cent'] += $zeile['abweichung'] * (int) $p['preis_cent'];
             }
         }
 
@@ -96,6 +102,7 @@ class AuszaehlungController extends BaseController
             'bereich'     => $bereich,
             'gruppen'     => array_values($gruppen),
             'summe'       => $summe,
+            'nachFehler'  => $hatAlt,
             'stichtag'    => $stichtag->format('Y-m-d\TH:i'),
             'bemerkung'   => $this->text(old('bemerkung', $entwurf['bemerkung'] ?? '')),
             'hatEntwurf'  => $entwurf !== null,
@@ -120,7 +127,8 @@ class AuszaehlungController extends BaseController
         $zeile  = $p + ['gebinde' => $gebinde, 'wert' => trim($ist), 'kisten' => '', 'einzeln' => ''];
 
         if ($gebinde === null) {
-            $gezaehlt = ctype_digit($zeile['wert']) ? (int) $zeile['wert'] : null;
+            $gezaehlt = $this->stueck('', $zeile['wert'], null);
+            $gezaehlt = is_int($gezaehlt) ? $gezaehlt : null;
         } else {
             $kisten  = $hatAlt ? old('kisten', null, false) : null;
             $einzeln = $hatAlt ? old('einzeln', null, false) : null;

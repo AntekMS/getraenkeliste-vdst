@@ -24,10 +24,11 @@ $abweichung = static function (?int $differenz): string {
     return '<span class="badge-status ' . $klasse . '"><i class="bi ' . $icon . ' me-1" aria-hidden="true"></i>' . esc($text) . '</span>';
 };
 $danach    = 'Danach sind alle Buchungen bis zum Stichtag abgerechnet und können nicht mehr geändert werden.';
-$bestaetig = 'Auszählung jetzt abschließen? ' . ($summe['abweichend'] === 0
-    ? 'Alle Artikel stimmen. '
-    : $summe['abweichend'] . ' Artikel ' . ($summe['abweichend'] === 1 ? 'weicht' : 'weichen') . ' ab (zusammen ' . $euro($summe['cent']) . '). ') . $danach;
 $alleGezaehlt = $summe['gezaehlt'] === $summe['artikel'];
+// Abweichende Anzahl/Summe ohne „neu“-Artikel (deren Abweichung zählt nicht als Schwund).
+$bestaetig = 'Auszählung jetzt abschließen? ' . ($summe['abweichend'] === 0
+    ? ($alleGezaehlt ? 'Alle Artikel stimmen. ' : 'Alle gezählten Artikel stimmen. ')
+    : $summe['abweichend'] . ' Artikel ' . ($summe['abweichend'] === 1 ? 'weicht' : 'weichen') . ' ab (zusammen ' . $euro($summe['cent']) . '). ') . $danach;
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
     <h1 class="h3 mb-0">Auszählung – <?= esc($bereich['name']) ?></h1>
@@ -46,18 +47,18 @@ $alleGezaehlt = $summe['gezaehlt'] === $summe['artikel'];
 <form action="<?= esc($basis) ?>" method="get" class="row g-2 align-items-end mb-4" id="stichtag-form">
     <div class="col-md-5">
         <label for="stichtag" class="form-label">Stichtag</label>
-        <input type="datetime-local" class="form-control<?= $feld('stichtag') ?>" id="stichtag" name="stichtag" value="<?= esc($stichtag) ?>" data-geladen="<?= esc($stichtag) ?>" aria-describedby="stichtag-hilfe" required>
+        <input type="datetime-local" class="form-control auszaehlung-stichtag<?= $feld('stichtag') ?>" id="stichtag" name="stichtag" value="<?= esc($stichtag) ?>" data-geladen="<?= esc($stichtag) ?>" aria-describedby="stichtag-hilfe" required>
         <div class="form-text text-warning-emphasis d-none" id="stichtag-hinweis">Bitte „Stichtag ändern“ klicken, damit die Zahlen „Laut System“ neu berechnet werden.</div>
         <?= $meldung('stichtag') ?>
     </div>
     <div class="col-auto">
-        <button type="submit" class="btn btn-outline-vdst">Stichtag ändern</button>
+        <button type="submit" class="btn btn-outline-vdst auszaehlung-stichtag">Stichtag ändern</button>
     </div>
     <div class="col-12 form-text" id="stichtag-hilfe">Bis zu diesem Zeitpunkt zählen alle Buchungen mit. Meist: jetzt.</div>
 </form>
 
 <h2 class="h5 mt-4">2. Zählen</h2>
-<form action="<?= esc($basis) ?>" method="post" id="auszaehlung-form">
+<form action="<?= esc($basis) ?>" method="post" id="auszaehlung-form"<?= $nachFehler ? ' data-ungespeichert="1"' : '' ?>>
     <?= csrf_field() ?>
     <input type="hidden" name="stichtag" id="stichtag-senden" value="<?= esc($stichtag) ?>">
 
@@ -83,7 +84,7 @@ $alleGezaehlt = $summe['gezaehlt'] === $summe['artikel'];
             <tbody>
                 <?php foreach ($gruppe['positionen'] as $p): ?>
                     <?php $id = (int) $p['artikel_id']; ?>
-                    <tr class="js-zeile" data-soll="<?= esc((string) $p['soll']) ?>" data-preis="<?= esc((string) $p['preis_cent']) ?>"<?= $p['gebinde'] === null ? '' : ' data-gebinde="' . esc((string) $p['gebinde']) . '"' ?>>
+                    <tr class="js-zeile" data-soll="<?= esc((string) $p['soll']) ?>" data-preis="<?= esc((string) $p['preis_cent']) ?>"<?= $p['start'] ? ' data-neu="1"' : '' ?><?= $p['gebinde'] === null ? '' : ' data-gebinde="' . esc((string) $p['gebinde']) . '"' ?>>
                         <td data-label="Artikel">
                             <span>
                                 <?= esc($p['name']) ?> <span class="text-muted small"><?= esc($p['einheit']) ?></span>
@@ -100,13 +101,13 @@ $alleGezaehlt = $summe['gezaehlt'] === $summe['artikel'];
                                     <div class="d-flex gap-2 justify-content-end">
                                         <div>
                                             <label class="form-label small mb-0" for="kisten-<?= $id ?>">Kisten</label>
-                                            <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control text-end auszaehlung-eingabe js-kisten<?= $feld("ist.{$id}") ?>"
-                                                   id="kisten-<?= $id ?>" name="kisten[<?= $id ?>]" value="<?= esc($p['kisten']) ?>">
+                                            <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control text-end auszaehlung-eingabe auszaehlung-eingabe-gebinde js-kisten<?= $feld("ist.{$id}") ?>"
+                                                   id="kisten-<?= $id ?>" name="kisten[<?= $id ?>]" value="<?= esc($p['kisten']) ?>" aria-label="Kisten: <?= esc($p['name']) ?>">
                                         </div>
                                         <div>
                                             <label class="form-label small mb-0" for="einzeln-<?= $id ?>">einzeln</label>
-                                            <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control text-end auszaehlung-eingabe js-einzeln<?= $feld("ist.{$id}") ?>"
-                                                   id="einzeln-<?= $id ?>" name="einzeln[<?= $id ?>]" value="<?= esc($p['einzeln']) ?>">
+                                            <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control text-end auszaehlung-eingabe auszaehlung-eingabe-gebinde js-einzeln<?= $feld("ist.{$id}") ?>"
+                                                   id="einzeln-<?= $id ?>" name="einzeln[<?= $id ?>]" value="<?= esc($p['einzeln']) ?>" aria-label="einzeln: <?= esc($p['name']) ?>">
                                         </div>
                                     </div>
                                     <div class="small text-muted mt-1 js-stueck" aria-live="polite"><?= $p['gezaehlt'] === null ? '' : esc('= ' . $p['gezaehlt'] . ' Stück') ?></div>
@@ -144,5 +145,5 @@ $alleGezaehlt = $summe['gezaehlt'] === $summe['artikel'];
 <?= $this->endSection() ?>
 
 <?= $this->section('scripts') ?>
-<script src="<?= base_url('js/auszaehlung.js') ?>?v=3"></script>
+<script src="<?= base_url('js/auszaehlung.js') ?>?v=4"></script>
 <?= $this->endSection() ?>

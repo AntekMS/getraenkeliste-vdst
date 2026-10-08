@@ -109,7 +109,7 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   „Gerade wird abgerechnet – bitte gleich erneut versuchen.“ über `BuchungService::sperrfehlerAbgelehnt`. Summen mit negativer Menge: `einzelpreis_cent` ist UNSIGNED →
   in SQL immer `CAST(einzelpreis_cent AS SIGNED)` vor der Multiplikation. Testhelfer `DbTestCase::beiGesperrtemBereich()` (zweite Verbindung hält die Bereichszeile).
   Lieferung: Menge je Zeile ≤ 1 000 000 (sonst Feldfehler „Menge zu groß.“).
-- Auszählung Entwurf (Stufe 2, Task 7): `GET/POST wart/<bereich>/auszaehlung` (`Wart\AuszaehlungController`, View `wart/auszaehlung_formular`, `public/js/auszaehlung.js` (v=3),
+- Auszählung Entwurf (Stufe 2, Task 7): `GET/POST wart/<bereich>/auszaehlung` (`Wart\AuszaehlungController`, View `wart/auszaehlung_formular`, `public/js/auszaehlung.js` (v=4),
   Recht `auszaehlung_durchfuehren@<bereich>`; POST `aktion=entwurf|abschliessen` über zwei Submit-Knöpfe, Entwurf zuerst im DOM). `Libraries/AuszaehlungService` (Service `auszaehlungen()`): `vorschlag(bereichId, stichtag)` = Soll je Artikel
   über **`BestandService::aggregat(bereichId, artikelIds, ?bis)`** (einzige Quelle für Anfangsbestand/Lieferungen/Schwund/Korrekturen/Verkauf; auch die Bestandsseite rechnet damit, `AuszaehlungServiceTest` pinnt Soll = Bestand)
   (Anfangsbestand = Ist der letzten abgeschlossenen Auszählung, Lieferungen/Schwund/Korrekturen/Verkauf im Fenster Beginn (inkl. nur ohne Abschluss) … Stichtag inklusive, `start` = Artikel hat keine Position in der
@@ -120,9 +120,9 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   `data-soll`/`data-preis`/`data-gebinde`. Artikel mit `gebinde_groesse` (Controller liest sie in **einer** Abfrage über `ArtikelModel`) haben `kisten[<id>]` + `einzeln[<id>]` statt `ist[<id>]`; der **Controller** rechnet
   `kisten × gebinde + einzeln` zu `ist[<id>]` um (beide leer → ungezählt; ungültig/negativ/> 999 999 → Feldfehler `ist.<id>` = `MELDUNG_IST` „Bitte eine Zahl ab 0 eintragen.“), Service-API unverändert; Wiederanzeige teilt Stück
   in ⌊n/gebinde⌋ Kisten + Rest (nach Fehler die getippten Rohwerte aus `old()`). Abweichung je Zeile als `badge-status-gruen/rot/amber` mit Icon („stimmt“, „N fehlen“, „N zu viel“), serverseitig vorgerendert und von JS
-  identisch nachgerechnet. Feste Aktionsleiste `.auszaehlung-leiste` (`position: sticky; bottom: 0`): „n von m gezählt“, „Abweichung: −4,50 €“ (Σ Abweichung × Preis, nur gezählte) bzw. „keine Abweichung“, „Entwurf speichern“
+  identisch nachgerechnet. Feste Aktionsleiste `.auszaehlung-leiste` (`position: sticky; bottom: 0`): „n von m gezählt“, „Abweichung: −4,50 €“ (Σ Abweichung × Preis, nur gezählte und **ohne „neu“-Artikel** (`data-neu`), die auch nicht als „weicht ab“ zählen) bzw. „keine Abweichung“, „Entwurf speichern“
   (zuerst im DOM) und „Abschließen“ (einzige `.btn-vdst`; JS sperrt ihn, bis alles gezählt ist, und setzt `data-confirm` mit Anzahl/Summe dynamisch; ohne JS immer aktiv, der Server prüft). `MELDUNG_IST_FEHLT` =
-  „Bitte für jeden Artikel eintragen, wie viel du gezählt hast.“ (auch Flash `error` beim Abschluss).
+  „Bitte für jeden Artikel eintragen, wie viel du gezählt hast.“ (Flash `error` beim Abschluss), am Feld `MELDUNG_IST_LEER` „Bitte eintragen.“. JS schreibt bei einer Eingabe nur die geänderte Zeile (Differenzen-Cache, aria-live nur Zeilenzellen + Leiste), > 6 Stellen/> 999 999 = ungültig (`is-invalid`); nach Validierungsfehler `data-ungespeichert="1"` am Formular (Stichtag-Rückfrage).
 - Excel-Export (Stufe 2, Task 8): `Libraries/AuszaehlungExport` (Service `auszaehlungExport()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`; Tests nutzen ein Temp-Verzeichnis):
   `erzeuge(auszaehlungId)` → relativer Pfad `exporte/Auszaehlung_<bereich>_<von>_bis_<bis>.xlsx` (Suffix `_<id>`, wenn **eine andere Auszählung** den Namen in `datei_pfad` hat), nur für
   abgeschlossene mit `abgeschlossen_at` (sonst `RuntimeException`), schreibt `datei_pfad` **nicht** (macht Task 9). Zeitraum = (`zeitraum_von`, `stichtag`], inklusiv nur ohne frühere abgeschlossene Auszählung des Bereichs.
