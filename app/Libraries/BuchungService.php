@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Libraries;
 
 use App\Models\ArtikelModel;
+use App\Models\BereichModel;
 use App\Models\BuchungModel;
 use App\Models\PersonModel;
+use CodeIgniter\Database\BaseBuilder;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -21,6 +23,8 @@ class BuchungService
     private const QUELLEN        = ['web', 'tablet'];
     private const MAX_POSITIONEN = 30;
     private const MAX_MENGE      = 99;
+    private const MAX_TEXT       = 255;
+    private const MELDUNG_ABRECHNUNG = 'Gerade wird abgerechnet – bitte gleich erneut versuchen.';
     private const UUID_V4        = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
     private const FORMAT         = 'Y-m-d H:i:s';
 
@@ -69,6 +73,7 @@ class BuchungService
 
         $artikelModel = new ArtikelModel();
         $zeilen       = [];
+        $bereichIds   = [];
 
         foreach ($summiert as $artikelId => $menge) {
             $artikel = $artikelModel->findeBuchbar($artikelId);
@@ -91,17 +96,26 @@ class BuchungService
                 'gebucht_von_id'   => $gebuchtVonId,
                 'geraet_id'        => $geraetId,
             ];
+            $bereichIds[] = (int) $artikel['bereich_id'];
         }
 
-        $this->vorDemSchreiben($vorgangId);
-
-        $jetzt = service('uhr')->jetzt()->format(self::FORMAT);
         $model = new BuchungModel();
 
         try {
-            $model->transaktion(static function () use ($zeilen, $model, $jetzt): void {
+            $model->transaktion(function () use ($zeilen, $model, $bereichIds, $vorgangId): void {
+                // Entscheidung 1: erst die Bereiche sperren, dann „jetzt“ und den Stichtag lesen.
+                // Ein paralleler Abschluss ist damit entweder schon committet (→ geprüft) oder wartet.
+                $this->sperreBereiche($bereichIds, $vorgangId);
+                $jetzt = service('uhr')->jetzt();
+
+                foreach (array_unique($bereichIds) as $bereichId) {
+                    if (service('zeitraeume')->istEingefroren($jetzt, $bereichId)) {
+                        throw new BuchungAbgelehnt('Dieser Zeitraum ist abgeschlossen. Nicht gebucht.');
+                    }
+                }
+
                 foreach ($zeilen as $zeile) {
-                    $zeile['gebucht_at'] = $jetzt;
+                    $zeile['gebucht_at'] = $jetzt->format(self::FORMAT);
 
                     if ($model->insert($zeile) === false) {
                         throw new DatabaseException('Buchung konnte nicht gespeichert werden.');
@@ -117,8 +131,9 @@ class BuchungService
                 return $bereitsGebucht;
             }
 
-            throw $e;
+            throw self::sperrfehlerAbgelehnt($e) ?? $e;
         }
+
         return $this->ergebnis($this->zeilen($vorgangId), false);
     }
 
@@ -166,13 +181,12 @@ class BuchungService
             throw new BuchungAbgelehnt('Bereits storniert.');
         }
 
-        $this->pruefeStornierbar($alle[0]['gebucht_at']);
-        $this->markiere(array_column($offen, 'id'), $stornoVonId);
+        $this->storniere($offen, $stornoVonId);
     }
 
     public function storniereBuchung(int $buchungId, ?int $stornoVonId): void
     {
-        $buchung = (new BuchungModel())->find($buchungId);
+        $buchung = $this->zeilenQuery()->where('b.id', $buchungId)->get()->getRowArray();
 
         if ($buchung === null) {
             throw new BuchungAbgelehnt('Unbekannte Buchung.');
@@ -182,51 +196,203 @@ class BuchungService
             throw new BuchungAbgelehnt('Bereits storniert.');
         }
 
-        $this->pruefeStornierbar($buchung['gebucht_at']);
-        $this->markiere([$buchungId], $stornoVonId);
-    }
-
-    private function pruefeStornierbar(string $gebuchtAt): void
-    {
-        $gebucht = new DateTimeImmutable($gebuchtAt, new DateTimeZone('Europe/Berlin'));
-
-        // Stufe 1: es gibt noch keinen Stichtag; Stufe 2 liefert hier das Datum.
-        $letzterStichtag = null;
-
-        if (ZeitraumErmittler::istEingefroren($gebucht, $letzterStichtag)) {
-            throw new BuchungAbgelehnt('Dieser Zeitraum ist abgeschlossen.');
-        }
-
-        if (! StornoFrist::istOffen($gebucht, service('uhr')->jetzt(), service('einstellungen')->int('storno_frist_min'))) {
-            throw new BuchungAbgelehnt('Die Storno-Frist ist abgelaufen.');
-        }
+        $this->storniere([$buchung], $stornoVonId);
     }
 
     /**
+     * Eine Transaktion: Bereiche sperren, dann Einfrieren (vor der Frist) prüfen, dann markieren.
      * Alles oder nichts; die Bedingung `storniert_at IS NULL` fängt einen parallelen Storno ab.
      *
-     * @param list<int|string> $ids
+     * @param non-empty-list<array<string, mixed>> $zeilen Buchungszeilen inkl. bereich_id (alle desselben Vorgangs)
      */
-    private function markiere(array $ids, ?int $stornoVonId): void
+    private function storniere(array $zeilen, ?int $stornoVonId, ?string $grund = null, bool $alsWart = false, ?int $bereichId = null): void
     {
-        $jetzt = service('uhr')->jetzt()->format(self::FORMAT);
+        try {
+            (new BuchungModel())->transaktion(function () use ($zeilen, $stornoVonId, $grund, $alsWart, $bereichId): void {
+                $this->sperreBereiche(array_map(static fn (array $z): int => (int) $z['bereich_id'], $zeilen), $zeilen[0]['vorgang_id']);
+                $jetzt = service('uhr')->jetzt();
 
-        (new BuchungModel())->transaktion(static function () use ($ids, $stornoVonId, $jetzt): void {
-            foreach ($ids as $id) {
-                $builder = db_connect()->table('buchungen')
-                    ->where('id', (int) $id)
-                    ->where('storniert_at', null);
-                $builder->update(['storniert_at' => $jetzt, 'storniert_von_id' => $stornoVonId, 'storno_grund' => null, 'updated_at' => $jetzt]);
-
-                if (db_connect()->affectedRows() !== 1) {
-                    throw new BuchungAbgelehnt('Bereits storniert.');
+                foreach ($zeilen as $z) {
+                    if ($bereichId !== null && (int) $z['bereich_id'] !== $bereichId) {
+                        throw new BuchungAbgelehnt('Unbekannte Buchung.');
+                    }
                 }
-            }
-        });
+
+                foreach ($zeilen as $z) {
+                    if (service('zeitraeume')->istEingefroren(self::zeit($z['gebucht_at']), (int) $z['bereich_id'])) {
+                        throw new BuchungAbgelehnt('Dieser Zeitraum ist abgeschlossen.');
+                    }
+                }
+
+                if (! $alsWart && ! StornoFrist::istOffen(self::zeit($zeilen[0]['gebucht_at']), $jetzt, service('einstellungen')->int('storno_frist_min'))) {
+                    throw new BuchungAbgelehnt('Die Storno-Frist ist abgelaufen.');
+                }
+
+                $zeitpunkt = $jetzt->format(self::FORMAT);
+
+                foreach ($zeilen as $z) {
+                    db_connect()->table('buchungen')
+                        ->where('id', (int) $z['id'])
+                        ->where('storniert_at', null)
+                        ->update(['storniert_at' => $zeitpunkt, 'storniert_von_id' => $stornoVonId, 'storno_grund' => $grund, 'updated_at' => $zeitpunkt]);
+
+                    if (db_connect()->affectedRows() !== 1) {
+                        throw new BuchungAbgelehnt('Bereits storniert.');
+                    }
+
+                    if ($alsWart) {
+                        service('protokollierer')->schreibe((int) $stornoVonId, 'storniert', 'buchungen', (int) $z['id'], ['storniert_at' => null, 'storno_grund' => null], ['storniert_at' => $zeitpunkt, 'storno_grund' => $grund]);
+                    }
+                }
+            });
+        } catch (DatabaseException $e) {
+            throw self::sperrfehlerAbgelehnt($e) ?? $e;
+        }
     }
 
     /**
-     * Testnaht: läuft nach den Prüfungen, direkt vor der Buchungs-Transaktion.
+     * Storno durch den Wart: ohne Storno-Frist (Einfrieren und Bereichssperre gelten), Grund Pflicht, protokolliert.
+     */
+    public function storniereAlsWart(int $buchungId, int $wartId, string $grund, int $bereichId): void
+    {
+        $grund = trim($grund);
+
+        if ($grund === '') {
+            throw new BuchungAbgelehnt('Bitte einen Grund angeben.');
+        }
+
+        if (mb_strlen($grund) > self::MAX_TEXT) {
+            throw new BuchungAbgelehnt('Der Grund ist zu lang (höchstens ' . self::MAX_TEXT . ' Zeichen).');
+        }
+
+        $buchung = $this->zeilenQuery()->where('b.id', $buchungId)->get()->getRowArray();
+
+        if ($buchung === null) {
+            throw new BuchungAbgelehnt('Unbekannte Buchung.');
+        }
+
+        if ($buchung['storniert_at'] !== null) {
+            throw new BuchungAbgelehnt('Bereits storniert.');
+        }
+
+        $this->storniere([$buchung], $wartId, $grund, true, $bereichId);
+    }
+
+    /**
+     * Korrekturbuchung des Warts (Konto, Artikel, ±Menge ≠ 0, Bemerkung Pflicht): aktueller Preis, neue Vorgangs-ID,
+     * standardmäßig nur für den Betrag (`bestandswirksam = false`; mit true zählt sie auch für Bestand, Soll und Verkauf),
+     * Bereichssperre als erste Anweisung der Transaktion, Einfrieren geprüft, protokolliert. Archivierte Artikel sind erlaubt.
+     *
+     * @param int  $bereichId       der Artikel muss zu diesem Bereich gehören
+     * @param bool $bestandswirksam Ware wurde tatsächlich entnommen bzw. zurückgegeben
+     *
+     * @return array{vorgang_id: string, konto_id: int, positionen: list<array{artikel_id: int, name: string, menge: int, einzelpreis_cent: int}>, summe_cent: int, zusammenfassung: string, gebucht_at: string, wiederholt: bool, storniert: bool}
+     */
+    public function bucheKorrektur(int $kontoId, int $artikelId, int $menge, string $bemerkung, int $wartId, int $bereichId, bool $bestandswirksam): array
+    {
+        $bemerkung = trim($bemerkung);
+
+        if ($menge === 0 || abs($menge) > self::MAX_MENGE) {
+            throw new BuchungAbgelehnt('Bitte eine Menge zwischen -' . self::MAX_MENGE . ' und ' . self::MAX_MENGE . ' (nicht 0) angeben.');
+        }
+
+        if ($bemerkung === '') {
+            throw new BuchungAbgelehnt('Bitte eine Bemerkung angeben.');
+        }
+
+        if (mb_strlen($bemerkung) > self::MAX_TEXT) {
+            throw new BuchungAbgelehnt('Die Bemerkung ist zu lang (höchstens ' . self::MAX_TEXT . ' Zeichen).');
+        }
+
+        $konto = (new PersonModel())->find($kontoId);
+
+        if ($konto === null || $konto['archiviert_at'] !== null) {
+            throw new BuchungAbgelehnt('Dieses Konto ist nicht buchbar. Nicht gebucht.');
+        }
+
+        $artikel = db_connect()->table('artikel a')
+            ->select('a.id, a.name, a.preis_cent, k.bereich_id')
+            ->join('kategorien k', 'k.id = a.kategorie_id')
+            ->where('a.id', $artikelId)
+            ->get()->getRowArray();
+
+        if ($artikel === null || (int) $artikel['bereich_id'] !== $bereichId) {
+            throw new BuchungAbgelehnt('Bitte einen Artikel dieses Bereichs wählen.');
+        }
+
+        $vorgangId = self::neueVorgangId();
+        $model     = new BuchungModel();
+
+        try {
+            $model->transaktion(function () use ($model, $artikel, $kontoId, $artikelId, $menge, $bemerkung, $wartId, $vorgangId, $bestandswirksam): void {
+                $this->sperreBereiche([(int) $artikel['bereich_id']], $vorgangId);
+                $jetzt = service('uhr')->jetzt();
+
+                if (service('zeitraeume')->istEingefroren($jetzt, (int) $artikel['bereich_id'])) {
+                    throw new BuchungAbgelehnt('Dieser Zeitraum ist abgeschlossen. Nicht gebucht.');
+                }
+
+                $zeile = [
+                    'vorgang_id'       => $vorgangId,
+                    'konto_id'         => $kontoId,
+                    'artikel_id'       => $artikelId,
+                    'menge'            => $menge,
+                    'einzelpreis_cent' => (int) $artikel['preis_cent'],
+                    'quelle'           => 'korrektur',
+                    'gebucht_von_id'   => $wartId,
+                    'geraet_id'        => null,
+                    'gebucht_at'       => $jetzt->format(self::FORMAT),
+                    'bemerkung'        => $bemerkung,
+                    'bestandswirksam'  => $bestandswirksam ? 1 : 0,
+                ];
+                $id = $model->insert($zeile, true);
+
+                if ($id === false) {
+                    throw new DatabaseException('Buchung konnte nicht gespeichert werden.');
+                }
+
+                service('protokollierer')->schreibe($wartId, 'korrektur', 'buchungen', (int) $id, null, $zeile);
+            });
+        } catch (DatabaseException $e) {
+            throw self::sperrfehlerAbgelehnt($e) ?? $e;
+        }
+
+        return $this->ergebnis($this->zeilen($vorgangId), false);
+    }
+
+    /**
+     * Lock-Wait-Timeout/Deadlock (MySQL 1205/1213) als fachliche Meldung (S2-R2), sonst null.
+     */
+    public static function sperrfehlerAbgelehnt(DatabaseException $e): ?BuchungAbgelehnt
+    {
+        if (in_array($e->getCode(), [1205, 1213], true) || str_contains($e->getMessage(), 'Lock wait timeout') || str_contains($e->getMessage(), 'Deadlock')) {
+            return new BuchungAbgelehnt(self::MELDUNG_ABRECHNUNG);
+        }
+
+        return null;
+    }
+
+    /**
+     * Erste Abfrage jeder Schreib-Transaktion (Entscheidung 1). Danach wird der Stichtag frisch gelesen:
+     * Der Cache könnte aus der Zeit vor der Sperre stammen.
+     *
+     * @param list<int> $bereichIds
+     */
+    private function sperreBereiche(array $bereichIds, string $vorgangId): void
+    {
+        (new BereichModel())->sperre($bereichIds);
+        service('zeitraeume')->vergiss();
+        $this->vorDemSchreiben($vorgangId);
+    }
+
+    private static function zeit(string $wert): DateTimeImmutable
+    {
+        return new DateTimeImmutable($wert, new DateTimeZone('Europe/Berlin'));
+    }
+
+    /**
+     * Testnaht: läuft in der Schreib-Transaktion (Buchen und Storno) direkt nach der Bereichssperre,
+     * vor Stichtag-Prüfung und Schreiben.
      */
     protected function vorDemSchreiben(string $vorgangId): void
     {
@@ -295,12 +461,15 @@ class BuchungService
      */
     private function zeilen(string $vorgangId): array
     {
+        return $this->zeilenQuery()->where('b.vorgang_id', $vorgangId)->orderBy('b.id')->get()->getResultArray();
+    }
+
+    private function zeilenQuery(): BaseBuilder
+    {
         return db_connect()->table('buchungen b')
-            ->select('b.*, a.name AS artikel_name')
+            ->select('b.*, a.name AS artikel_name, k.bereich_id')
             ->join('artikel a', 'a.id = b.artikel_id')
-            ->where('b.vorgang_id', $vorgangId)
-            ->orderBy('b.id')
-            ->get()->getResultArray();
+            ->join('kategorien k', 'k.id = a.kategorie_id');
     }
 
     /**

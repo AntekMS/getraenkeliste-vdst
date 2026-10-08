@@ -3,16 +3,21 @@
 namespace Config;
 
 use App\Libraries\Anmeldung;
+use App\Libraries\Artikelbild;
+use App\Libraries\AuszaehlungExport;
+use App\Libraries\AuszaehlungService;
+use App\Libraries\BestandService;
 use App\Libraries\BuchungService;
 use App\Libraries\Einstellungen;
 use App\Libraries\Geraete;
 use App\Libraries\Protokollierer;
 use App\Libraries\Uhr;
+use App\Libraries\Zeitraeume;
 use CodeIgniter\Config\BaseService;
 
 /**
  * Anwendungsspezifische Services: `uhr` (einzige Quelle für „jetzt“),
- * `einstellungen` (je Request gecacht) und `protokollierer`.
+ * `einstellungen`, `zeitraeume` (beide je Request gecacht), `protokollierer`, `auszaehlungExport` und `artikelbild`.
  */
 class Services extends BaseService
 {
@@ -68,5 +73,50 @@ class Services extends BaseService
         }
 
         return new Protokollierer();
+    }
+
+    public static function bestand(bool $getShared = true): BestandService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('bestand');
+        }
+
+        return new BestandService();
+    }
+
+    public static function auszaehlungen(bool $getShared = true): AuszaehlungService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('auszaehlungen');
+        }
+
+        return new AuszaehlungService();
+    }
+
+    public static function auszaehlungExport(bool $getShared = true): AuszaehlungExport
+    {
+        if ($getShared) {
+            return static::getSharedInstance('auszaehlungExport');
+        }
+
+        return new AuszaehlungExport();
+    }
+
+    public static function zeitraeume(bool $getShared = true): Zeitraeume
+    {
+        if ($getShared) {
+            return static::getSharedInstance('zeitraeume');
+        }
+
+        return new Zeitraeume();
+    }
+
+    public static function artikelbild(bool $getShared = true): Artikelbild
+    {
+        if ($getShared) {
+            return static::getSharedInstance('artikelbild');
+        }
+
+        return new Artikelbild();
     }
 }

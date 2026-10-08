@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Libraries\Artikelbild;
 use CodeIgniter\Database\BaseBuilder;
 use CodeIgniter\Model;
 
@@ -16,18 +17,18 @@ class ArtikelModel extends Model
     protected $useTimestamps = true;
     protected $allowedFields = [
         'kategorie_id', 'name', 'preis_cent', 'einheit', 'gebinde_groesse',
-        'mindestbestand', 'bestand_fuehren', 'sortierung', 'archiviert_at',
+        'mindestbestand', 'bestand_fuehren', 'sortierung', 'archiviert_at', 'bild_datei', 'bild_version',
     ];
 
     /**
      * Buchbare Artikel: nur aktive Bereiche, nicht archivierte Kategorien und Artikel.
      *
-     * @return list<array{schluessel: string, name: string, kategorien: list<array{id: int, name: string, artikel: list<array{id: int, name: string, einheit: string, preis_cent: int}>}>}>
+     * @return list<array{schluessel: string, name: string, kategorien: list<array{id: int, name: string, artikel: list<array{id: int, name: string, einheit: string, preis_cent: int, bild_url: ?string}>}>}>
      */
     public function buchbar(): array
     {
         $zeilen = $this->buchbarQuery()
-            ->select('a.id AS artikel_id, a.name AS artikel_name, a.einheit, a.preis_cent, k.id AS kategorie_id, k.name AS kategorie_name, b.schluessel, b.name AS bereich_name')
+            ->select('a.id AS artikel_id, a.name AS artikel_name, a.einheit, a.preis_cent, a.bild_datei, a.bild_version, k.id AS kategorie_id, k.name AS kategorie_name, b.schluessel, b.name AS bereich_name')
             ->orderBy('b.id')->orderBy('k.sortierung')->orderBy('k.id')->orderBy('a.sortierung')->orderBy('a.id')
             ->get()->getResultArray();
 
@@ -39,6 +40,7 @@ class ArtikelModel extends Model
             $bereiche[$z['schluessel']]['kategorien'][$z['kategorie_id']]['artikel'][] = [
                 'id' => (int) $z['artikel_id'], 'name' => $z['artikel_name'],
                 'einheit' => $z['einheit'], 'preis_cent' => (int) $z['preis_cent'],
+                'bild_url' => Artikelbild::url(['id' => $z['artikel_id'], 'bild_datei' => $z['bild_datei'], 'bild_version' => $z['bild_version']]),
             ];
         }
 
@@ -51,12 +53,12 @@ class ArtikelModel extends Model
     }
 
     /**
-     * @return ?array<string, mixed> Artikel inkl. bereich_schluessel, null wenn nicht buchbar
+     * @return ?array<string, mixed> Artikel inkl. bereich_id und bereich_schluessel, null wenn nicht buchbar
      */
     public function findeBuchbar(int $id): ?array
     {
         return $this->buchbarQuery()
-            ->select('a.*, b.schluessel AS bereich_schluessel')
+            ->select('a.*, b.id AS bereich_id, b.schluessel AS bereich_schluessel')
             ->where('a.id', $id)
             ->get()->getRowArray();
     }

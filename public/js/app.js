@@ -1,6 +1,6 @@
 /**
  * VDSt Getränkeliste - gemeinsames JavaScript
- * Darkmode-Umschalter und automatisches Ausblenden von Flash-Bannern.
+ * Darkmode-Umschalter, automatisches Ausblenden von Flash-Bannern, Drucken und Rückfragen (data-confirm).
  */
 
 // Icon/aria-pressed aller .js-theme-toggle-Buttons an den aktuellen Theme-Wert angleichen
@@ -44,11 +44,60 @@ document.addEventListener('DOMContentLoaded', function () {
     syncThemeToggleIcons(document.documentElement.getAttribute('data-bs-theme'));
 });
 
-
 // Druck-Button (Opt-in über data-print), ohne Inline-Handler wegen CSP
 document.addEventListener('click', function (event) {
     const button = event.target.closest('[data-print]');
     if (button) {
         window.print();
     }
+});
+
+// Rückfrage vor folgenreichen Aktionen (Opt-in über data-confirm an Submit-Knopf oder Formular), ohne Inline-Handler wegen CSP
+document.addEventListener('click', function (event) {
+    const knopf = event.target.closest('button[data-confirm], input[type="submit"][data-confirm]');
+    if (knopf && !window.confirm(knopf.dataset.confirm)) {
+        event.preventDefault();
+    }
+});
+
+// Gesperrt wird erst beim tatsächlichen Absenden (nach der Browser-Validierung), nicht schon beim Klick.
+document.addEventListener('submit', function (event) {
+    const formular = event.target;
+    if (formular.matches('form[data-confirm]') && !window.confirm(formular.dataset.confirm)) {
+        event.preventDefault();
+        return;
+    }
+    if (event.defaultPrevented) {
+        return;
+    }
+    const knopf = event.submitter;
+    if (knopf && (knopf.hasAttribute('data-confirm') || formular.hasAttribute('data-confirm'))) {
+        sperreKnopf(knopf);
+    }
+});
+
+// Knopf sperren (kein zweiter Abschluss per Doppelklick); verzögert, damit der Knopfwert noch ins Formular gelangt.
+function sperreKnopf(knopf) {
+    setTimeout(function () {
+        if (knopf.disabled) {
+            return;
+        }
+        knopf.disabled = true;
+        knopf.setAttribute('data-gesperrt', '1');
+        knopf.insertAdjacentHTML('afterbegin', '<span class="spinner-border spinner-border-sm me-1 js-sperr-spinner" role="status" aria-hidden="true"></span>');
+    }, 0);
+}
+
+// Zurück/Vor aus dem Seitencache (bfcache): gesperrte Knöpfe wieder freigeben
+window.addEventListener('pageshow', function (event) {
+    if (!event.persisted) {
+        return;
+    }
+    document.querySelectorAll('[data-gesperrt]').forEach(function (knopf) {
+        knopf.disabled = false;
+        knopf.removeAttribute('data-gesperrt');
+        knopf.querySelectorAll('.js-sperr-spinner').forEach(function (spinner) {
+            spinner.remove();
+        });
+    });
 });

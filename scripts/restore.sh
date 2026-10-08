@@ -2,15 +2,18 @@
 #
 # Wiederherstellung der VDSt-Getränkeliste aus einem Backup (Docker-Setup).
 #
-#   ./scripts/restore.sh <db_dump.sql.gz> [exporte.tar.gz] [--ja]
+#   ./scripts/restore.sh <db_dump.sql.gz> [exporte_<datum>.tar.gz] [artikelbilder_<datum>.tar.gz] [--ja]
+#
+# Archive werden am Dateinamen erkannt: artikelbilder_*.tar.gz = Artikelbilder, jedes andere *.tar.gz = Exporte.
 #
 # Ablauf:
-#   1. Prüfungen (Dateien vorhanden, gültiges gzip, Dump vollständig, Archiv enthält nur exporte/)
+#   1. Prüfungen (Dateien vorhanden, gültiges gzip, Dump vollständig, Archive enthalten nur exporte/ bzw. artikelbilder/)
 #   2. Sicherheitsabfrage (Eingabe "ja"; --ja überspringt sie; ohne Terminal ist --ja Pflicht)
 #   3. Web-Container stoppen (WEB_CONTAINER, leer = nicht stoppen); Neustart am Ende, auch bei Fehlern
-#   4. Sicherheits-Dump der AKTUELLEN Datenbank (und ggf. Exporte) nach BACKUP_DIR/vor-restore/
+#   4. Sicherheits-Dump der AKTUELLEN Datenbank (und ggf. Exporte/Bilder) nach BACKUP_DIR/vor-restore/
 #   5. DB-Dump einspielen
 #   6. Optional: writable/exporte/ wiederherstellen
+#   7. Optional: writable/artikelbilder/ wiederherstellen
 #
 # Die Konfiguration (konfig_*.tar.gz: .env, Override) wird bewusst NICHT
 # automatisch zurückgespielt. Ziel-DB über DB_NAME umlenkbar. Doku: docs/BACKUP.md
@@ -37,15 +40,17 @@ fehler() {
     exit 1
 }
 
-AUFRUF="Aufruf: $0 <db_dump.sql.gz> [exporte.tar.gz] [--ja]"
+AUFRUF="Aufruf: $0 <db_dump.sql.gz> [exporte_<datum>.tar.gz] [artikelbilder_<datum>.tar.gz] [--ja]"
 
 DB_DUMP=""
 EXPORTE_ARCHIV=""
+BILDER_ARCHIV=""
 JA=0
 for arg in "$@"; do
     case "$arg" in
         --ja) JA=1 ;;
         *.sql.gz) DB_DUMP="$arg" ;;
+        artikelbilder_*.tar.gz | */artikelbilder_*.tar.gz) BILDER_ARCHIV="$arg" ;;
         *.tar.gz) EXPORTE_ARCHIV="$arg" ;;
         *) fehler "Unbekanntes Argument: $arg ($AUFRUF)" ;;
     esac
@@ -63,6 +68,15 @@ if [ -n "$EXPORTE_ARCHIV" ]; then
     # Nur Archive aus backup.sh (alles unter exporte/) – nichts anderes nach writable/ entpacken.
     if tar -tzf "$EXPORTE_ARCHIV" | grep -v '^exporte/' >/dev/null; then
         fehler "Export-Archiv $EXPORTE_ARCHIV enthält Dateien außerhalb von exporte/"
+    fi
+    [ -d "$APP_DIR/writable" ] || fehler "Verzeichnis $APP_DIR/writable fehlt"
+fi
+if [ -n "$BILDER_ARCHIV" ]; then
+    [ -f "$BILDER_ARCHIV" ] || fehler "Bild-Archiv $BILDER_ARCHIV nicht gefunden"
+    gzip -t "$BILDER_ARCHIV" || fehler "Bild-Archiv $BILDER_ARCHIV ist kein gültiges gzip"
+    # Nur Archive aus backup.sh (alles unter artikelbilder/) – nichts anderes nach writable/ entpacken.
+    if tar -tzf "$BILDER_ARCHIV" | grep -v '^artikelbilder/' >/dev/null; then
+        fehler "Bild-Archiv $BILDER_ARCHIV enthält Dateien außerhalb von artikelbilder/"
     fi
     [ -d "$APP_DIR/writable" ] || fehler "Verzeichnis $APP_DIR/writable fehlt"
 fi
@@ -86,6 +100,9 @@ if [ "$JA" -ne 1 ]; then
     echo "Quelle: $DB_DUMP"
     if [ -n "$EXPORTE_ARCHIV" ]; then
         echo "        writable/exporte/ wird durch $EXPORTE_ARCHIV ersetzt."
+    fi
+    if [ -n "$BILDER_ARCHIV" ]; then
+        echo "        writable/artikelbilder/ wird durch $BILDER_ARCHIV ersetzt."
     fi
     read -r -p "Datenbank $DB_NAME wird überschrieben. Fortfahren? (ja/nein) " ANTWORT
     [ "$ANTWORT" = "ja" ] || { echo "Abgebrochen."; exit 0; }
@@ -131,6 +148,12 @@ if [ -n "$EXPORTE_ARCHIV" ]; then
     fi
 fi
 
+if [ -n "$BILDER_ARCHIV" ] && [ -d "$APP_DIR/writable/artikelbilder" ]; then
+    SICHERHEITS_BILDER="$BACKUP_DIR/vor-restore/artikelbilder_$ZEITSTEMPEL.tar.gz"
+    tar -czf "$SICHERHEITS_BILDER" -C "$APP_DIR/writable" artikelbilder
+    echo "Sicherung der Artikelbilder: $SICHERHEITS_BILDER"
+fi
+
 # ---- 5. DB einspielen -------------------------------------------------------
 gzip -dc "$DB_DUMP" | docker exec -i -e MYSQL_PWD="$DB_PASS" "$DB_CONTAINER" \
     mysql -u "$DB_USER" "$DB_NAME" \
@@ -145,6 +168,14 @@ if [ -n "$EXPORTE_ARCHIV" ]; then
     echo "writable/exporte/ wiederhergestellt aus $EXPORTE_ARCHIV"
 fi
 
+# ---- 7. Artikelbilder einspielen --------------------------------------------
+if [ -n "$BILDER_ARCHIV" ]; then
+    mkdir -p "$APP_DIR/writable/artikelbilder"
+    find "$APP_DIR/writable/artikelbilder" -mindepth 1 -delete
+    tar -xzf "$BILDER_ARCHIV" -C "$APP_DIR/writable"
+    echo "writable/artikelbilder/ wiederhergestellt aus $BILDER_ARCHIV"
+fi
+
 echo
 echo "Fertig. Hinweise:"
 echo "  - Die Konfiguration (.env, docker-compose.override.yml) wird NICHT automatisch"
@@ -152,4 +183,5 @@ echo "    zurückgespielt. Bei Bedarf von Hand aus konfig_<datum>.tar.gz holen:"
 echo "    tar -xzf konfig_<datum>.tar.gz -C <verzeichnis>   (enthält Geheimnisse!)"
 echo "    Danach .env: sudo chown \"\$USER\":33 .env && sudo chmod 640 .env"
 echo "  - Falls der Dump älter als der Code ist: docker exec -u www-data getraenkeliste-web php spark migrate"
-echo "  - Der Web-Container setzt beim Start die Rechte von writable/ (auch der eingespielten Exporte)."
+echo "  - Der Web-Container setzt beim Start die Rechte von writable/ (auch der eingespielten Exporte und Bilder)."
+echo "  - Artikelbilder gehören zum Dump desselben Tages (Dateinamen stehen in der DB)."

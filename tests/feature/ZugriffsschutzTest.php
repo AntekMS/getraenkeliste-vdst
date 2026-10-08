@@ -12,7 +12,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\DbTestCase;
 
 /**
- * Zugriffs-Sweep: jede Route aus `php spark routes` (feste Liste unten, nicht existierende Beispiel-ID 999999) mit vier Akteuren.
+ * Zugriffs-Sweep: jede Route aus `php spark routes` (feste Liste unten, nicht existierende Beispiel-ID 999999) mit fünf Akteuren
+ * (zusätzlich `getraenkewart`: Mitglied mit Rolle getraenkewart; Klassen wart_getraenke = durchgelassen, wart_kiosk = 403, für Admin 404).
  *
  * Routenklassen und erwartetes Ergebnis je Akteur:
  *
@@ -25,6 +26,7 @@ use Tests\Support\DbTestCase;
  * | abmelden    | Redirect `login`      | Redirect `login`      | Redirect `login`      | Redirect `tablet` |
  * | admin       | Redirect `login`      | 403                   | durchgelassen         | Redirect `tablet` |
  * | umleitung   | Redirect `buchen`     | Redirect `buchen`     | Redirect `buchen`     | Redirect `buchen` |
+ * | bild        | 403                   | durchgelassen (404)   | durchgelassen (404)   | durchgelassen (404) |
  *
  * Der Test prüft nur die Zugriffsschicht (Filter), keine Fachlogik: „durchgelassen“ ist ein Access-Check, kein Funktionstest.
  * Alle ID-Routen nutzen eine nicht existierende ID, damit Admin-POSTs bei geteilter DB ($refresh = false) nie echte Zeilen ändern.
@@ -58,6 +60,7 @@ final class ZugriffsschutzTest extends DbTestCase
         ['GET', 'tablet', 'tablet'], ['GET', 'tablet/pin/999999', 'tablet'], ['GET', 'tablet/buchen', 'tablet'],
         ['POST', 'tablet/waehlen/999999', 'tablet'], ['POST', 'tablet/pin/999999', 'tablet'], ['POST', 'tablet/buchen', 'tablet'],
         ['POST', 'tablet/rueckgaengig', 'tablet'], ['POST', 'tablet/fertig', 'tablet'],
+        ['GET', 'artikelbild/999999', 'bild'],
         ['POST', 'logout', 'abmelden'],
         ['GET', 'konto/einrichten', 'angemeldet'], ['POST', 'konto/einrichten', 'angemeldet'],
         ['GET', 'konto', 'angemeldet'], ['POST', 'konto/passwort', 'angemeldet'], ['POST', 'konto/pin', 'angemeldet'],
@@ -79,6 +82,21 @@ final class ZugriffsschutzTest extends DbTestCase
         ['POST', 'admin/artikel/999999/verschieben/runter', 'admin'], ['POST', 'admin/artikel/999999/archivieren', 'admin'],
         ['GET', 'admin/einstellungen', 'admin'], ['POST', 'admin/einstellungen', 'admin'],
         ['GET', 'admin/protokoll', 'admin'],
+        ['GET', 'wart/getraenke/bestand', 'wart_getraenke'], ['GET', 'wart/kiosk/bestand', 'wart_kiosk'],
+        ['GET', 'wart/getraenke/lieferung', 'wart_getraenke'], ['POST', 'wart/getraenke/lieferung', 'wart_getraenke'],
+        ['GET', 'wart/getraenke/bewegung', 'wart_getraenke'], ['POST', 'wart/getraenke/bewegung', 'wart_getraenke'],
+        ['GET', 'wart/kiosk/lieferung', 'wart_kiosk'], ['POST', 'wart/kiosk/lieferung', 'wart_kiosk'],
+        ['GET', 'wart/kiosk/bewegung', 'wart_kiosk'], ['POST', 'wart/kiosk/bewegung', 'wart_kiosk'],
+        ['GET', 'wart/getraenke/buchungen', 'wart_getraenke'], ['POST', 'wart/getraenke/buchungen/999999/storno', 'wart_getraenke'],
+        ['GET', 'wart/getraenke/korrektur', 'wart_getraenke'], ['POST', 'wart/getraenke/korrektur', 'wart_getraenke'],
+        ['GET', 'wart/kiosk/buchungen', 'wart_kiosk'], ['POST', 'wart/kiosk/buchungen/999999/storno', 'wart_kiosk'],
+        ['GET', 'wart/kiosk/korrektur', 'wart_kiosk'], ['POST', 'wart/kiosk/korrektur', 'wart_kiosk'],
+        ['GET', 'wart/getraenke/auszaehlung', 'wart_getraenke'], ['POST', 'wart/getraenke/auszaehlung', 'wart_getraenke'],
+        ['GET', 'wart/kiosk/auszaehlung', 'wart_kiosk'], ['POST', 'wart/kiosk/auszaehlung', 'wart_kiosk'],
+        ['GET', 'wart/getraenke/auszaehlungen', 'wart_getraenke'], ['GET', 'wart/getraenke/auszaehlungen/999999/download', 'wart_getraenke'],
+        ['POST', 'wart/getraenke/auszaehlungen/999999/neu-erzeugen', 'wart_getraenke'],
+        ['GET', 'wart/kiosk/auszaehlungen', 'wart_kiosk'], ['GET', 'wart/kiosk/auszaehlungen/999999/download', 'wart_kiosk'],
+        ['POST', 'wart/kiosk/auszaehlungen/999999/neu-erzeugen', 'wart_kiosk'],
         ['GET', '/', 'umleitung'],
     ];
 
@@ -90,7 +108,7 @@ final class ZugriffsschutzTest extends DbTestCase
         $faelle = [];
 
         foreach (self::ROUTEN as [$methode, $pfad, $klasse]) {
-            foreach (['anonym', 'mitglied', 'admin', 'tablet'] as $akteur) {
+            foreach (['anonym', 'mitglied', 'getraenkewart', 'admin', 'tablet'] as $akteur) {
                 $faelle["{$methode} {$pfad} als {$akteur}"] = [$methode, $pfad, $klasse, $akteur];
             }
         }
@@ -104,11 +122,11 @@ final class ZugriffsschutzTest extends DbTestCase
         $this->uhrStellen(self::JETZT);
         $sitzung = $this->csrf();
 
-        if ($akteur === 'mitglied' || $akteur === 'admin') {
+        if (in_array($akteur, ['mitglied', 'getraenkewart', 'admin'], true)) {
             $person = $this->personAnlegen(['benutzername' => uniqid('z', true)]);
 
-            if ($akteur === 'admin') {
-                $this->rolleGeben($person, 'admin');
+            if ($akteur !== 'mitglied') {
+                $this->rolleGeben($person, $akteur);
             }
 
             $sitzung = [...$sitzung, ...$this->angemeldeteSitzung($person)];
@@ -136,6 +154,13 @@ final class ZugriffsschutzTest extends DbTestCase
         if ($erwartet === 'verboten') {
             $this->assertNotNull($antwort);
             $antwort->assertStatus(403);
+
+            return;
+        }
+
+        // Filter lässt durch, der Controller kennt den (inaktiven) Bereich nicht: 404 (als Exception oder Status).
+        if ($erwartet === 'nicht_gefunden') {
+            $this->assertTrue($antwort === null || $antwort->getStatusCode() === 404, "{$methode} {$pfad} als {$akteur}: erwartet 404");
 
             return;
         }
@@ -225,11 +250,26 @@ final class ZugriffsschutzTest extends DbTestCase
                 default  => 'durchgelassen',
             },
             'admin' => match ($akteur) {
+                'anonym'                    => 'redirect:login',
+                'mitglied', 'getraenkewart' => 'verboten',
+                'tablet'                    => 'redirect:tablet',
+                default                     => 'durchgelassen',
+            },
+            // Recht je Bereich in der URL: der Getränkewart darf nur getraenke, der Kiosk-Bereich ist bis Stufe 3 inaktiv (404 für alle, die der Filter durchlässt).
+            'wart_getraenke' => match ($akteur) {
                 'anonym'   => 'redirect:login',
                 'mitglied' => 'verboten',
                 'tablet'   => 'redirect:tablet',
                 default    => 'durchgelassen',
             },
+            'wart_kiosk' => match ($akteur) {
+                'anonym'                    => 'redirect:login',
+                'mitglied', 'getraenkewart' => 'verboten',
+                'tablet'                    => 'redirect:tablet',
+                default                     => 'nicht_gefunden',
+            },
+            // Artikelbild: Anmeldung oder gültiges Tablet; sonst 403 (kein Redirect, wird per <img> geladen). Beispiel-ID fehlt → 404.
+            'bild'      => $akteur === 'anonym' ? 'verboten' : 'nicht_gefunden',
             'umleitung' => 'redirect:buchen',
         };
     }

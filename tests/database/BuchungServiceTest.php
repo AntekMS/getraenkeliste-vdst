@@ -382,6 +382,256 @@ final class BuchungServiceTest extends DbTestCase
         $this->assertSame('2× Helles – 3,00 €', $zweit['zusammenfassung']);
     }
 
+    public function test_storno_im_eingefrorenen_zeitraum_abgelehnt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 2]]);
+        $zeile = db_connect()->table('buchungen')->where('vorgang_id', self::V1)->get()->getRowArray();
+
+        // Stichtag = Buchungszeitpunkt (Grenzsekunde gehört zum abgeschlossenen Zeitraum); Storno-Frist läuft noch.
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+        $this->uhrStellen('2026-10-05 12:05:00');
+
+        foreach ([
+            static fn () => service('buchungen')->storniereVorgang(self::V1, $konto),
+            static fn () => service('buchungen')->storniereBuchung((int) $zeile['id'], $konto),
+        ] as $storno) {
+            try {
+                $storno();
+                $this->fail('Ablehnung erwartet');
+            } catch (BuchungAbgelehnt $e) {
+                $this->assertSame('Dieser Zeitraum ist abgeschlossen.', $e->getMessage());
+            }
+        }
+
+        // Auch nach Fristablauf meldet der eingefrorene Zeitraum sich zuerst.
+        $this->uhrStellen('2026-10-05 13:00:00');
+
+        try {
+            service('buchungen')->storniereVorgang(self::V1, $konto);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Dieser Zeitraum ist abgeschlossen.', $e->getMessage());
+        }
+
+        $this->seeInDatabase('buchungen', ['vorgang_id' => self::V1, 'storniert_at' => null]);
+    }
+
+    public function test_storno_direkt_nach_dem_stichtag_bleibt_erlaubt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $this->auszaehlungAnlegen('2026-10-05 11:59:59');
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00', 'entwurf');
+
+        service('buchungen')->storniereVorgang(self::V1, $konto);
+
+        $this->seeNumRecords(0, 'buchungen', ['vorgang_id' => self::V1, 'storniert_at' => null]);
+    }
+
+    public function test_rueckgaengig_nach_abschluss_abgelehnt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'tablet', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        // Abschluss in derselben Minute: die Tablet-Rückgängig-Taste käme noch innerhalb der Frist.
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+        $this->uhrStellen('2026-10-05 12:00:30');
+
+        $this->expectException(BuchungAbgelehnt::class);
+        $this->expectExceptionMessage('Dieser Zeitraum ist abgeschlossen.');
+        service('buchungen')->storniereVorgang(self::V1, $konto);
+    }
+
+    public function test_buchung_im_eingefrorenen_zeitraum_abgelehnt(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        // Ein (paralleler) Abschluss mit Stichtag = jetzt ist bereits committet.
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+
+        try {
+            service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Dieser Zeitraum ist abgeschlossen. Nicht gebucht.', $e->getMessage());
+        }
+
+        $this->seeNumRecords(0, 'buchungen', []);
+    }
+
+    /**
+     * Der Zeiträume-Cache stammt aus der Zeit vor einem (in einem anderen Request) committeten Abschluss: Buchen und Storno
+     * müssen ihn unter der Bereichssperre verwerfen (`vergiss()`), sonst rutschten sie in den eingefrorenen Zeitraum.
+     */
+    public function test_veralteter_zeitraeume_cache_wird_unter_der_sperre_verworfen(): void
+    {
+        $konto  = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        $this->assertNull(service('zeitraeume')->letzterStichtag($this->bereichId('getraenke')), 'Cache vorbelegt: kein Abschluss');
+        $this->auszaehlungAnlegen('2026-10-05 12:00:00');
+
+        foreach ([
+            'Dieser Zeitraum ist abgeschlossen. Nicht gebucht.' => static fn () => service('buchungen')->bucheVorgang(self::V2, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]),
+            'Dieser Zeitraum ist abgeschlossen.'                => static fn () => service('buchungen')->storniereVorgang(self::V1, $konto),
+        ] as $meldung => $aktion) {
+            try {
+                $aktion();
+                $this->fail('Ablehnung erwartet: ' . $meldung);
+            } catch (BuchungAbgelehnt $e) {
+                $this->assertSame($meldung, $e->getMessage());
+            }
+        }
+
+        $this->seeNumRecords(1, 'buchungen', ['storniert_at' => null]);
+    }
+
+    public function test_buchung_sperrt_bereich(): void
+    {
+        $konto   = $this->personAnlegen();
+        $helles  = $this->artikelAnlegen();
+        $bereich = $this->bereichId('getraenke');
+
+        $service = $this->dienstMitSperrprobe($bereich);
+        $r       =$service->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        $this->assertFalse($r['wiederholt']);
+        $this->assertInstanceOf(DatabaseException::class, $service->fehler);
+        $this->assertSame(1205, $service->fehler->getCode(), $service->fehler->getMessage());
+        $this->seeNumRecords(1, 'buchungen', ['vorgang_id' => self::V1]);
+    }
+
+    public function test_storno_sperrt_bereich(): void
+    {
+        $konto   = $this->personAnlegen();
+        $helles  = $this->artikelAnlegen();
+        $bereich = $this->bereichId('getraenke');
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+
+        $service = $this->dienstMitSperrprobe($bereich);
+        $service->storniereVorgang(self::V1, $konto);
+
+        $this->assertInstanceOf(DatabaseException::class, $service->fehler);
+        $this->assertSame(1205, $service->fehler->getCode(), $service->fehler->getMessage());
+        $this->seeNumRecords(0, 'buchungen', ['vorgang_id' => self::V1, 'storniert_at' => null]);
+    }
+
+    public function test_lock_timeout_wird_zu_deutscher_meldung_und_nichts_wird_geschrieben(): void
+    {
+        $konto   = $this->personAnlegen();
+        $wart    = $this->personAnlegen();
+        $helles  = $this->artikelAnlegen();
+        $bereich = $this->bereichId('getraenke');
+        $meldung = 'Gerade wird abgerechnet – bitte gleich erneut versuchen.';
+        service('buchungen')->bucheVorgang(self::V2, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $id = (int) db_connect()->table('buchungen')->where('vorgang_id', self::V2)->get()->getRow()->id;
+
+        $versuche = [
+            'buchen'          => static fn () => service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]),
+            'storno vorgang'  => static fn () => service('buchungen')->storniereVorgang(self::V2, $konto),
+            'storno buchung'  => static fn () => service('buchungen')->storniereBuchung($id, $konto),
+            'storno wart'     => static fn () => service('buchungen')->storniereAlsWart($id, $wart, 'Irrtum', $bereich),
+            'korrektur'       => static fn () => service('buchungen')->bucheKorrektur($konto, $helles, -1, 'Fehler', $wart, $bereich, false),
+        ];
+
+        $this->beiGesperrtemBereich($bereich, function () use ($versuche, $meldung): void {
+            foreach ($versuche as $name => $versuch) {
+                try {
+                    $versuch();
+                    $this->fail("{$name}: Ablehnung erwartet");
+                } catch (BuchungAbgelehnt $e) {
+                    $this->assertSame($meldung, $e->getMessage(), $name);
+                }
+            }
+        });
+
+        $this->seeNumRecords(1, 'buchungen', []);
+        $this->seeNumRecords(1, 'buchungen', ['vorgang_id' => self::V2, 'storniert_at' => null]);
+        $this->seeNumRecords(0, 'protokoll', []);
+    }
+
+    public function test_wart_methoden_lehnen_anderen_bereich_ab(): void
+    {
+        $konto  = $this->personAnlegen();
+        $wart   = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        $kiosk  = $this->bereichId('kiosk');
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $id = (int) db_connect()->table('buchungen')->where('vorgang_id', self::V1)->get()->getRow()->id;
+
+        try {
+            service('buchungen')->storniereAlsWart($id, $wart, 'x', $kiosk);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Unbekannte Buchung.', $e->getMessage());
+        }
+
+        try {
+            service('buchungen')->bucheKorrektur($konto, $helles, 1, 'x', $wart, $kiosk, true);
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Bitte einen Artikel dieses Bereichs wählen.', $e->getMessage());
+        }
+
+        $this->seeNumRecords(1, 'buchungen', []);
+        $this->seeNumRecords(1, 'buchungen', ['storniert_at' => null]);
+    }
+
+    public function test_wart_storno_ohne_grund_und_nach_frist(): void
+    {
+        $konto  = $this->personAnlegen();
+        $wart   = $this->personAnlegen();
+        $helles = $this->artikelAnlegen();
+        service('buchungen')->bucheVorgang(self::V1, $konto, $konto, null, 'web', [['artikel_id' => $helles, 'menge' => 1]]);
+        $id = (int) db_connect()->table('buchungen')->where('vorgang_id', self::V1)->get()->getRow()->id;
+        $this->uhrStellen('2026-10-07 12:00:00');
+
+        try {
+            service('buchungen')->storniereAlsWart($id, $wart, '  ', $this->bereichId('getraenke'));
+            $this->fail('Ablehnung erwartet');
+        } catch (BuchungAbgelehnt $e) {
+            $this->assertSame('Bitte einen Grund angeben.', $e->getMessage());
+        }
+
+        service('buchungen')->storniereAlsWart($id, $wart, ' Doppelt gebucht ', $this->bereichId('getraenke'));
+        $this->seeInDatabase('buchungen', ['id' => $id, 'storniert_von_id' => $wart, 'storno_grund' => 'Doppelt gebucht', 'storniert_at' => '2026-10-07 12:00:00']);
+        $this->seeInDatabase('protokoll', ['person_id' => $wart, 'aktion' => 'storniert', 'tabelle' => 'buchungen', 'datensatz_id' => $id]);
+    }
+
+    /**
+     * Dienst, dessen Hook (in der Transaktion, nach der Bereichssperre) über eine zweite Verbindung
+     * versucht, den Bereich selbst zu sperren; die Exception landet in `$fehler`.
+     */
+    private function dienstMitSperrprobe(int $bereichId): BuchungService
+    {
+        return new class ($bereichId) extends BuchungService {
+            public ?\Throwable $fehler = null;
+
+            public function __construct(private int $bereich)
+            {
+            }
+
+            protected function vorDemSchreiben(string $vorgangId): void
+            {
+                $zweite = \Config\Database::connect('tests', false);
+
+                try {
+                    $zweite->query('SET SESSION innodb_lock_wait_timeout = 1');
+                    $zweite->query('SELECT id FROM bereiche WHERE id = ? FOR UPDATE', [$this->bereich]);
+                } catch (\Throwable $e) {
+                    $this->fehler = $e;
+                } finally {
+                    $zweite->close();
+                }
+            }
+        };
+    }
+
     private function dienstMitKonkurrenz(string $vorgangId, int $kontoId, int $vonId, int $artikelId): BuchungService
     {
         return new class ($vorgangId, $kontoId, $vonId, $artikelId) extends BuchungService {
@@ -389,13 +639,23 @@ final class BuchungServiceTest extends DbTestCase
             {
             }
 
+            /**
+             * Der Hook läuft innerhalb der Buchungs-Transaktion; der „parallele“ Request schreibt
+             * deshalb über eine eigene Verbindung (autocommit) wie ein echter zweiter Request.
+             */
             protected function vorDemSchreiben(string $vorgangId): void
             {
-                db_connect()->table('buchungen')->insert([
-                    'vorgang_id' => $this->v, 'konto_id' => $this->k, 'artikel_id' => $this->a, 'menge' => 1,
-                    'einzelpreis_cent' => 100, 'quelle' => 'web', 'gebucht_von_id' => $this->von,
-                    'gebucht_at' => '2026-10-05 12:00:00',
-                ]);
+                $zweite = \Config\Database::connect('tests', false);
+
+                try {
+                    $zweite->table('buchungen')->insert([
+                        'vorgang_id' => $this->v, 'konto_id' => $this->k, 'artikel_id' => $this->a, 'menge' => 1,
+                        'einzelpreis_cent' => 100, 'quelle' => 'web', 'gebucht_von_id' => $this->von,
+                        'gebucht_at' => '2026-10-05 12:00:00',
+                    ]);
+                } finally {
+                    $zweite->close();
+                }
             }
         };
     }

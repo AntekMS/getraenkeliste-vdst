@@ -1049,6 +1049,27 @@ tfoot.table-light {
     flex-direction: column;
 }
 
+/* Artikelbild oben in der Kachel (dekorativ, fester Bildausschnitt) */
+.artikel-bild {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border-radius: var(--radius);
+    background: var(--grau-200);
+    margin-bottom: .5rem;
+}
+
+.artikel-bild-vorschau {
+    display: block;
+    width: 100%;
+    max-width: 12rem;
+    aspect-ratio: 4 / 3;
+    object-fit: cover;
+    border: 1px solid var(--grau-200);
+    border-radius: var(--radius);
+}
+
 .artikel-kachel-name {
     font-weight: 600;
     color: var(--grau-900);
@@ -1104,6 +1125,11 @@ tfoot.table-light {
 
 .buchen-bestaetigung {
     max-width: 32rem;
+}
+
+/* Auszählung: schmales Ist-Feld in der Tabelle */
+.auszaehlung-ist {
+    max-width: 7rem;
 }
 
 /* Druckansicht (Einmal-Passwort-Liste): Navigation und Bedienelemente ausblenden */

@@ -22,6 +22,9 @@ $routes->group('tablet', ['filter' => ['tablet', 'tablet_csrf']], static functio
     $routes->post('fertig', 'TabletController::fertig');
 });
 
+// Artikelbilder: persönliche Anmeldung oder gültiges Tablet (Filter `bild`), sonst 403.
+$routes->get('artikelbild/(:num)', 'ArtikelbildController::zeige/$1', ['filter' => 'bild']);
+
 $routes->group('', ['filter' => 'angemeldet:frei'], static function (RouteCollection $routes): void {
     $routes->post('logout', 'AuthController::logout');
     $routes->get('konto/einrichten', 'KontoController::einrichtenForm');
@@ -79,3 +82,34 @@ $routes->group('admin', ['filter' => ['angemeldet', 'recht:admin'], 'namespace' 
 
     $routes->get('protokoll', 'ProtokollController::index');
 });
+
+// Wart-Bereich: das Recht hängt am Bereich in der URL (recht:<aktion>@<bereich>); der Controller liefert 404 für inaktive Bereiche (Kiosk bis Stufe 3).
+foreach (['getraenke', 'kiosk'] as $bereich) {
+    $routes->group('wart/' . $bereich, ['namespace' => 'App\Controllers\Wart'], static function (RouteCollection $routes) use ($bereich): void {
+        $filter = ['filter' => ['angemeldet', 'recht:bestand_pflegen@' . $bereich]];
+
+        $routes->get('bestand', 'BestandController::index/' . $bereich, $filter);
+        $routes->get('lieferung', 'BewegungenController::lieferungForm/' . $bereich, $filter);
+        $routes->post('lieferung', 'BewegungenController::lieferung/' . $bereich, $filter);
+        $routes->get('bewegung', 'BewegungenController::bewegungForm/' . $bereich, $filter);
+        $routes->post('bewegung', 'BewegungenController::bewegung/' . $bereich, $filter);
+
+        $verwalten = ['filter' => ['angemeldet', 'recht:buchungen_verwalten@' . $bereich]];
+
+        $routes->get('buchungen', 'BuchungenController::index/' . $bereich, $verwalten);
+        $routes->post('buchungen/(:num)/storno', 'BuchungenController::storno/' . $bereich . '/$1', $verwalten);
+        $routes->get('korrektur', 'BuchungenController::korrekturForm/' . $bereich, $verwalten);
+        $routes->post('korrektur', 'BuchungenController::korrektur/' . $bereich, $verwalten);
+
+        $auszaehlung = ['filter' => ['angemeldet', 'recht:auszaehlung_durchfuehren@' . $bereich]];
+
+        $routes->get('auszaehlung', 'AuszaehlungController::index/' . $bereich, $auszaehlung);
+        $routes->post('auszaehlung', 'AuszaehlungController::speichern/' . $bereich, $auszaehlung);
+        $routes->post('auszaehlungen/(:num)/neu-erzeugen', 'AuszaehlungController::neuErzeugen/' . $bereich . '/$1', $auszaehlung);
+
+        $ansehen = ['filter' => ['angemeldet', 'recht:auszaehlung_ansehen@' . $bereich]];
+
+        $routes->get('auszaehlungen', 'AuszaehlungController::liste/' . $bereich, $ansehen);
+        $routes->get('auszaehlungen/(:num)/download', 'AuszaehlungController::download/' . $bereich . '/$1', $ansehen);
+    });
+}

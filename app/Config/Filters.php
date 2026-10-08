@@ -3,6 +3,7 @@
 namespace Config;
 
 use App\Filters\AnmeldungFilter;
+use App\Filters\BildFilter;
 use App\Filters\GeraetFilter;
 use App\Filters\KeinTabletFilter;
 use App\Filters\RechtFilter;
@@ -36,6 +37,7 @@ class Filters extends BaseFilters
         'tablet'        => GeraetFilter::class,
         'kein_tablet'   => KeinTabletFilter::class,
         'tablet_csrf'   => TabletCsrfFilter::class,
+        'bild'          => BildFilter::class,
         'toolbar'       => DebugToolbar::class,
         'honeypot'      => Honeypot::class,
         'invalidchars'  => InvalidChars::class,

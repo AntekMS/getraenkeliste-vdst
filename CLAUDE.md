@@ -39,37 +39,129 @@ Auf diesem Rechner gibt es **kein Host-PHP/Composer** — alles im Web-Container
   nicht mit CRLF ankommen.
 
 ## Architektur-Landkarte
-Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
+Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
 - `app/Config/` — angepasst: `App` (Europe/Berlin, Locale `de`, kein `index.php` in URLs),
   `Security` (CSRF `session`), `Session`, `Cookie`, `Filters` (`csrf` global), `Database`
   (liest `DB_HOST/DB_NAME/DB_USER/DB_PASS` aus der Compose-Umgebung)
 - `app/Database/Migrations/` — 000001 Grundtabellen (`bereiche`, `personen`, `person_rollen`,
   `anmelde_tokens`, `einstellungen`, `protokoll`), 000002 `kategorien`/`artikel`, 000003 `buchungen`,
   000004 `geraete`/`freischaltcodes`, 000005 Startdaten (Bereiche `getraenke` aktiv / `kiosk`
-  inaktiv, Sammelkonten Couleur/Bund, Einstellungs-Defaults, `inbetriebnahme_at` = jetzt).
+  inaktiv, Sammelkonten Couleur/Bund, Einstellungs-Defaults, `inbetriebnahme_at` = jetzt),
+  Stufe 2: 2026-10-06-000001 Bestand (`buchungen.bemerkung`, `bestandsbewegungen`, `auszaehlungen`,
+  `auszaehlung_positionen` mit `start`-Flag und `ist` NULL im Entwurf), 2026-10-07-000001 Artikelbild (`artikel.bild_datei` VARCHAR(64) NULL,
+  `artikel.bild_version` INT UNSIGNED DEFAULT 0), 2026-10-08-000001 Bestandswirksam (`buchungen.bestandswirksam` TINYINT(1) NOT NULL DEFAULT 1).
   Raw-SQL, InnoDB, utf8mb4_unicode_ci, FKs `ON DELETE RESTRICT`. Migrationen referenzieren
   **keine** App-Klassen (Konstanten werden wiederholt; `MigrationTest` prüft sie gegen die App).
 - `app/Models/` — CI4-Models (`array`, `$useTimestamps`): `PersonModel` (`rollen`,
-  `findeAktivNachBenutzername`, `sammelkontoId`, `istAktiv`), `BereichModel::aktive`,
+  `findeAktivNachBenutzername`, `sammelkontoId`, `istAktiv`), `BereichModel::aktive` und `::sperre(ids)` (`SELECT … ORDER BY id FOR UPDATE`, nur in Transaktionen, als erste Abfrage),
   `AnmeldeTokenModel::loescheFuerPerson`, `ArtikelModel::buchbar/findeBuchbar`, dazu schlanke
   Models für Kategorie, Buchung, Gerät, Freischaltcode, Einstellung, Protokoll, PersonRolle.
+  Stufe 2: `AuszaehlungModel` (`letzteAbgeschlossene`, `entwurf`, `abgeschlossene`),
+  `AuszaehlungPositionModel::fuer`, `BestandsbewegungModel` (alle mit Trait `Transaktion`).
+  PhpSpreadsheet (`phpoffice/phpspreadsheet:^5`) braucht die PHP-Erweiterungen `gd` und `zip` (Dockerfile);
+  `GETRAENKELISTE_VERSION` in `Config/Constants.php`.
 - `app/Libraries/Uhr.php` + `Config/Services.php` — Shared Services `uhr()`, `einstellungen()`,
   `protokollierer()`. **Jede zeitabhängige Stelle holt „jetzt“ über `service('uhr')->jetzt()`**
   (`DateTimeImmutable`, Europe/Berlin), nie `new DateTime()`/`time()`. `Einstellungen` (`int`, `text`,
   `inbetriebnahme`, `setze` → Fehlertext|null, protokolliert alt/neu) lädt die Werte je Request einmal.
   `Protokollierer::schreibe` entfernt oberste-Ebene-Schlüssel auf `_hash`, speichert JSON ohne
   Unicode-Escapes (MySQL normalisiert beim Lesen zu `{"wert": "10"}` → in Tests dekodiert vergleichen).
+- Stufe 2, reine Rechenklassen (statisch, ohne DB): `BestandRechner` (Bestand, Ampel negativ>leer>niedrig>ok),
+  `AuszaehlungRechner` (Position/Soll/Differenz, `schwundCent` = positiver Betrag ohne Start-Positionen, `pruefeStichtag`),
+  `Lieferumrechnung` (Kisten × Gebinde + Stück).
 - `app/Libraries/BuchungService.php` (Service `buchungen()`, wirft `BuchungAbgelehnt` mit deutscher UI-Meldung):
   `bucheVorgang(vorgangId UUIDv4, kontoId, gebuchtVonId, geraetId, quelle web|tablet, positionen)` — bekannte `vorgang_id`
   wird **vor** jeder Fachprüfung beantwortet (gespeichertes Ergebnis, `wiederholt=true`; Konto UND gebucht_von müssen passen,
   sonst „Ungültiger Vorgang.“); sonst alles-oder-nichts in einer manuellen Transaktion (`transBegin/Commit/Rollback`), ein
   `gebucht_at` je Vorgang, aktueller Preis; Unique-Verletzung im Wettlauf → Rollback + gespeichertes Ergebnis. Doppelte
   Artikel werden addiert (Summe ≤ 99), max. 30 Positionen. `storniereVorgang/storniereBuchung` prüfen Doppel-Storno, Frist
-  (`storno_frist_min` ab `gebucht_at`) und `ZeitraumErmittler::istEingefroren` (Stichtag in Stufe 1 noch `null`); **wer**
+  (`storno_frist_min` ab `gebucht_at`) und Einfrieren (`zeitraeume()->istEingefroren`, **vor** der Frist, Meldung „Dieser Zeitraum ist abgeschlossen.“); **wer**
   stornieren darf, entscheidet der Controller. `zusammenfassung()` ist statisch/rein. **Transaktionen laufen über `BuchungModel::transaktion()` (Trait `Transaktion`) mit `transException(true)`: CI4 wirft in Transaktionen sonst nicht, ein fehlgeschlagener Query würde still Teilergebnisse committen.** Storno-Update mit `storniert_at IS NULL` + `affectedRows`. Ergebnis enthält `storniert` (Replay eines inzwischen stornierten Vorgangs).
+  **Bereichssperre (Stufe 2, Entscheidung 1):** Buchen und Storno sperren in ihrer Transaktion zuerst die Bereiche der Artikel
+  (`BereichModel::sperre`), leeren den `zeitraeume`-Cache, lesen dann „jetzt“ und den Stichtag; Buchen in einen eingefrorenen
+  Zeitraum (Abschluss mit Stichtag ≥ jetzt schon committet) → „Dieser Zeitraum ist abgeschlossen. Nicht gebucht.“. Testnaht
+  `vorDemSchreiben` läuft **in** der Transaktion direkt nach der Sperre (Buchen und Storno); Konkurrenz-Tests schreiben daher über
+  eine zweite Verbindung (`\Config\Database::connect('tests', false)`, danach `close()`).
+- `app/Libraries/Zeitraeume.php` (Service `zeitraeume()`, je Request gecacht, `vergiss()` leert): `letzterStichtag(bereichId)` (nur
+  **abgeschlossene** Auszählungen), `beginn` (Stichtag oder Inbetriebnahme), `beginnInklusiv` (nur ohne Abschluss), `istEingefroren(zeit, bereichId)`
+  (≤ Stichtag), `fruehere` (`von`/`bis`/`von_inklusiv`/`auszaehlung_id`, neueste zuerst; `von` = vorheriger Stichtag bzw. Inbetriebnahme).
+  `BuchungModel::fuerKonto/vonPersonAufSammelkonten(…, ab, abInklusiv, bereichId)`, `offenerBetrag(…, ab, abInklusiv)`,
+  `summeImZeitraum(konto, bereich, von exkl., bis inkl., vonInklusiv)`.
+- Wart-Bereich (Stufe 2, Task 4): Routen `wart/<bereich>/…` (Schleife über `getraenke`/`kiosk` in `Routes.php`, Namespace `App\Controllers\Wart`, Filter
+  `angemeldet` + `recht:<aktion>@<bereich>`; `RechtFilter` trennt am ersten `@`, leerer Bereich → 403). Der Controller bekommt den Schlüssel als Argument und
+  liefert 404 für unbekannte/inaktive Bereiche (Kiosk bis Stufe 3; Getränkewart bekommt dort 403, Admin 404). `GET wart/<bereich>/bestand` (`BestandController`,
+  View `wart/bestand`, Ampel über `badge-status-*`). `Libraries/BestandService` (Service `bestand()`): `fuerBereich(bereichId)` (je Kategorie, nur `bestand_fuehren`
+  und nicht archiviert) und `einzeln(artikelId)`; Bestand = Ist der letzten abgeschlossenen Position (sonst 0) + Bewegungen − nicht stornierte, **bestandswirksame** Buchungsmengen
+  (`bestandswirksam = 1`) im laufenden Zeitraum (`zeitraeume()`), über Aggregatabfragen. Navigation „Getränkewart“ nur mit `darf(…, bestand_pflegen, getraenke)`.
+- Bewegungen (Stufe 2, Task 5): `GET/POST wart/<bereich>/lieferung` und `…/bewegung` (`Wart\BewegungenController`, Views `wart/lieferung`, `wart/bewegung`,
+  `public/js/lieferung.js` für weitere Zeilen aus `<template>`). `BestandService::liefere` (Kisten × Gebinde + Stück, optional EK je Stück, alles oder nichts,
+  Feldfehler `zeilen.<i>.<feld>`) und `bucheBewegung` (`schwund` positiv eingegeben → negativ gespeichert, `korrektur` ±, nie 0, Bemerkung Pflicht). Beide laufen
+  in `schreibend()`: Bereichssperre als erste Anweisung, Stichtag frisch, Einfrieren → „Dieser Zeitraum ist abgeschlossen.“, MySQL 1205/1213 → `BewegungAbgelehnt`
+  „Gerade wird abgerechnet – bitte gleich erneut versuchen.“; Protokoll je Bewegung (`lieferung`/`schwund`/`korrektur`, Tabelle `bestandsbewegungen`).
+  Fachliche Ablehnung = `BewegungAbgelehnt` (Message + `fehler`), der Controller leitet mit Flash `error`/`fehler` und `withInput()` zurück.
+- Buchungsverwaltung (Stufe 2, Task 6): `GET wart/<bereich>/buchungen`, `POST …/buchungen/(:num)/storno`, `GET/POST …/korrektur` (`Wart\BuchungenController`, Views
+  `wart/buchungen`, `wart/korrektur`, Recht `buchungen_verwalten@<bereich>`). Liste = laufender Zeitraum des Bereichs (`BuchungModel::imZeitraum`, Filter
+  `person`/`artikel`/`tag` mit gehärteten Parametern, 50 je Seite). `BuchungService::storniereAlsWart` (Grund Pflicht, keine Storno-Frist, Einfrieren + Bereichssperre,
+  setzt `storno_grund`, Protokoll `storniert`) und `bucheKorrektur` (`quelle = korrektur`, aktueller Preis, Menge ±1…99, Bemerkung Pflicht, archivierte Artikel erlaubt,
+  Protokoll `korrektur`; `$bereichId` erzwingt den Bereich; Pflicht-Parameter `bool $bestandswirksam` → Spalte `bestandswirksam`, Formular-Checkbox `bestandswirksam`
+  standardmäßig **aus** = Korrektur ändert nur den Betrag; web/tablet-Buchungen immer 1; steht im Protokoll). **Bestand/Soll/Verkauf** zählen nur `bestandswirksam = 1`
+  (`BestandService::aggregat`), Geldbeträge (offener Betrag, Abrechnung, Positionen) alle nicht stornierten Buchungen. Beide sperren zuerst den Bereich (S2-R1). MySQL 1205/1213 → `BuchungAbgelehnt`/`BewegungAbgelehnt`
+  „Gerade wird abgerechnet – bitte gleich erneut versuchen.“ über `BuchungService::sperrfehlerAbgelehnt`. Summen mit negativer Menge: `einzelpreis_cent` ist UNSIGNED →
+  in SQL immer `CAST(einzelpreis_cent AS SIGNED)` vor der Multiplikation. Testhelfer `DbTestCase::beiGesperrtemBereich()` (zweite Verbindung hält die Bereichszeile).
+  Lieferung: Menge je Zeile ≤ 1 000 000 (sonst Feldfehler „Menge zu groß.“).
+- Auszählung Entwurf (Stufe 2, Task 7): `GET/POST wart/<bereich>/auszaehlung` (`Wart\AuszaehlungController`, View `wart/auszaehlung_formular`, `public/js/auszaehlung.js` = Differenz live aus `data-soll`,
+  Recht `auszaehlung_durchfuehren@<bereich>`; POST `aktion=entwurf|abschliessen` über zwei Submit-Knöpfe, Entwurf zuerst im DOM). `Libraries/AuszaehlungService` (Service `auszaehlungen()`): `vorschlag(bereichId, stichtag)` = Soll je Artikel
+  über **`BestandService::aggregat(bereichId, artikelIds, ?bis)`** (einzige Quelle für Anfangsbestand/Lieferungen/Schwund/Korrekturen/Verkauf; auch die Bestandsseite rechnet damit, `AuszaehlungServiceTest` pinnt Soll = Bestand)
+  (Anfangsbestand = Ist der letzten abgeschlossenen Auszählung, Lieferungen/Schwund/Korrekturen/Verkauf im Fenster Beginn (inkl. nur ohne Abschluss) … Stichtag inklusive, `start` = Artikel hat keine Position in der
+  **letzten** abgeschlossenen Auszählung (dann ist der Anfangsbestand 0 unbekannt); archivierte nur mit Aktivität), `speichereEntwurf` (höchstens ein Entwurf je Bereich, Positionen werden ersetzt, Soll als Momentaufnahme, `ist` NULL = ungezählt; Bereichssperre zuerst,
+  Stichtag frisch geprüft, 1205/1213 → „Gerade wird abgerechnet …“; fachliche Fehler = `AuszaehlungAbgelehnt` mit Feldfehlern `stichtag`/`ist.<id>`). Stichtag-Eingabe `datetime-local` (Minutengenauigkeit),
+  Bemerkung ≤ 1000 Zeichen, Array-Parameter zählen als leer. „Stichtag übernehmen“ = GET `?stichtag=` (lädt das Soll neu; getippte Ist-Werte gehen verloren, gespeicherte Entwurfswerte bleiben sichtbar). Das versteckte Feld im POST-Formular gilt; JS zeigt nur einen Hinweis bei abweichendem Datum.
+- Excel-Export (Stufe 2, Task 8): `Libraries/AuszaehlungExport` (Service `auszaehlungExport()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`; Tests nutzen ein Temp-Verzeichnis):
+  `erzeuge(auszaehlungId)` → relativer Pfad `exporte/Auszaehlung_<bereich>_<von>_bis_<bis>.xlsx` (Suffix `_<id>`, wenn **eine andere Auszählung** den Namen in `datei_pfad` hat), nur für
+  abgeschlossene mit `abgeschlossen_at` (sonst `RuntimeException`), schreibt `datei_pfad` **nicht** (macht Task 9). Zeitraum = (`zeitraum_von`, `stichtag`], inklusiv nur ohne frühere abgeschlossene Auszählung des Bereichs.
+  Liest nur gespeicherte Daten (Meta `erstellt_am` = `abgeschlossen_at`) → Neu-Erzeugen liefert identische Zellwerte; Namen/Gruppe/Kategorie aber aus den Stammdaten beim
+  Erzeugen (IDs, Mengen, Beträge eingefroren; steht in `Erklaerungen`). `Abrechnung.betrag_eur` kann durch Korrekturen 0 oder negativ sein. Meta `zeitraum_von/bis`, `erstellt_am` sind Excel-Datumszellen.
+  Übersicht ordnet Couleur/Bund über `PersonModel::sammelkontoId` zu. Blätter/Spalten/Meta-Schlüssel exakt Spec 8.2 (`format_version` = `getraenkeliste-auszaehlung/1`,
+  bei Änderungen erhöhen). Alle Zellen per `setCellValueExplicit` (Text mit „=“ wird nie Formel), Datum als Excel-Seriennummer `yyyy-mm-dd hh:mm`, Beträge = Cent-Summe/100 mit `0.00`,
+  Geldsummen in SQL mit `CAST(einzelpreis_cent AS SIGNED)`. Datenblatt = Excel-`Table` (`Tabelle_<Blatt>`); ohne Datenzeilen nur AutoFilter auf der Kopfzeile (Table braucht ≥ 1 Datenzeile).
+  `Statistik` mit Säulendiagramm (Writer `setIncludeCharts(true)`); Schreiben in `.…tmp` im Zielordner, dann `rename`.
+  `datei(relativ)` → absoluter Pfad nur, wenn die Datei existiert und per `realpath` unter `<basis>/exporte/` liegt (sonst null; Download nutzt nur das).
+- Abschluss/Liste (Stufe 2, Task 9): `AuszaehlungService::schliesseAb(bereichId, wartId, stichtag, ist, bemerkung): int` – eine kurze Transaktion (gemeinsam mit
+  `speichereEntwurf` über `schreibend()` + `kopf()`): Bereichssperre zuerst, `vergiss()`, Testnaht `nachDerSperre(bereichId)`, Stichtag frisch geprüft, Positionen **neu aus
+  `vorschlag()`** (nie aus dem Entwurf), Ist für jeden Artikel Pflicht („Bitte für jeden Artikel einen Ist-Wert eintragen.“, Feldfehler `ist.<id>` = `MELDUNG_IST_FEHLT`), Entwurf wird
+  zur abgeschlossenen Auszählung (sonst neu), `erstellt_von_id` = wer abschließt (Liste/Excel zeigen es als „abgeschlossen von“), Protokoll `abgeschlossen`. **Nach** dem Commit
+  `vergiss()` und Export in `try/catch(Throwable)` → `datei_pfad`; Fehler → `log_message('error')`, `datei_pfad` bleibt NULL, Controller fragt `dateiFehlt(id)` und setzt zusätzlich
+  Flash `error`. `dateiNeuErzeugen(id, ?personId)` (Protokoll `datei_erzeugt`; ändert sich der Pfad, wird die alte Datei nach dem DB-Update gelöscht, nur wenn `AuszaehlungExport::datei()` sie unter `exporte/` findet). Routen: `GET wart/<bereich>/auszaehlungen` (View `wart/auszaehlungen`, neueste zuerst, `AuszaehlungModel::liste`)
+  und `GET …/auszaehlungen/(:num)/download` mit `recht:auszaehlung_ansehen@<bereich>`, `POST …/auszaehlungen/(:num)/neu-erzeugen` mit `auszaehlung_durchfuehren`; Entwurf/fremder
+  Bereich/unbekannt → 404; fehlende Datei → Redirect zur Liste mit Flash. Download = `response->download($pfad, null, true)->setFileName(basename)`. Rückfragen über
+  `data-confirm` an Submit-Knopf oder Formular (`public/js/app.js`, delegiert, keine Inline-Handler; Cache-Buster siehe Task 10).
+- Wart-Bereich Überblick (Stufe 2 komplett): alle Routen `wart/<bereich>/…` — `bestand`, `lieferung`, `bewegung`, `buchungen` (+ `storno`, `korrektur`), `auszaehlung` (Entwurf/Abschluss),
+  `auszaehlungen` (Liste, `…/(:num)/download`, `…/neu-erzeugen`). Rechte nur über Filter `recht:<aktion>@<bereich>`; Zeiträume (`Zeitraeume`), Einfrieren und Bereichssperre
+  gelten für Buchen, Storno, Bewegungen, Korrektur und Abschluss gleich. Exporte (`.xlsx`, `format_version getraenkeliste-auszaehlung/1`) liegen in `writable/exporte/`
+  (im Backup enthalten, `datei_pfad` relativ), Download nur aus diesem Verzeichnis (`realpath`-Prüfung). Neue Wart-Routen ⇒ `ZugriffsschutzTest::ROUTEN` ergänzen.
+  Trait `Controllers\Concerns\WartEingaben` (in `Auszaehlung-`, `Bewegungen-`, `BuchungenController`): `bereich(schluessel)` (unbekannt/inaktiv → 404) und `text(wert)` –
+  POST/GET-Werte immer darüber lesen, Array-Parameter (`bemerkung[]=x`) zählen als leer, nie `(string)`-Cast (sonst 500 „Array to string conversion“).
+- Erinnerungsbanner (Stufe 2, Task 10): Partial `layouts/erinnerung.php` (in `layouts/main.php`, nicht in `einfach`/Tablet) ruft `Zeitraeume::erinnerungen(rollen)`:
+  je **aktivem** Bereich mit Recht `auszaehlung_durchfuehren` und `tageSeitLetztemAbschluss` (volle Kalendertage ab Stichtag, sonst Inbetriebnahme, via `uhr`) > `erinnerung_tage`
+  ein `.alert-warning` (ohne Auto-Dismiss) „Die letzte Auszählung ist <n> Tage her.“ bzw. „Es gab noch keine Auszählung.“ + Link `wart/<bereich>/auszaehlung`.
+  Ohne das Recht (Mitglieder) entsteht keine DB-Abfrage. `public/js/app.js`: `data-confirm`: Rückfrage im Klick, Knopfsperre (Spinner) erst im `submit`-Ereignis (`event.submitter`, nur wenn das Absenden weiterläuft, also nach der Browser-Validierung), `pageshow` mit `persisted` gibt gesperrte Knöpfe wieder frei; Cache-Buster `app.js?v=5` (in `layouts/main.php` und `einfach.php`).
+- Artikelbilder (Stufe 2, Task 11): `Libraries/Artikelbild` (Service `artikelbild()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`, Dateien in
+  `<basis>/artikelbilder/`; Tests injizieren ein Temp-Verzeichnis per `Services::injectMock`). `pruefe` (≤ 5 MB „Das Bild ist zu groß (max. 5 MB).“, Typ per `finfo`
+  nur JPEG/PNG/WebP, `getimagesize` ≤ 8000 × 8000 und MIME muss passen, sonst „Bitte ein JPG-, PNG- oder WebP-Bild hochladen.“), `schreibe` (GD laden, `memory_limit` bei
+  Bedarf auf 512M, auf ≤ 600 px verkleinern (`zielgroesse`, nie vergrößern), JPEG-EXIF-Drehung 3/6/8 anwenden, **immer neu codiert**: JPEG q85, PNG nur bei echter
+  Transparenz (Pixel-Scan nach dem Verkleinern), Name `bin2hex(random_bytes(16))`.jpg/.png, Temp-Datei + `rename`), `uebernehme(artikelId, ?datei, personId)` (in einer
+  Transaktion: `SELECT … FOR UPDATE`, setzt `bild_datei`, `bild_version + 1`, Protokoll `bild_geaendert`/`bild_entfernt` mit `neu = {bild_version}`, liefert die alte Datei),
+  `wechsle(neueDatei, arbeit)` (Artikel-Transaktion; Fehler → neue Datei löschen, alte erst nach dem Commit), `speichere`/`entferne` (Kurzformen), `pfad` (nur Namen
+  `[0-9a-f]{32}.(jpg|png)` und vorhandene Datei), statisch `url(artikel)` → `artikelbild/<id>?v=<version>-<erste 8 Zeichen von bild_datei>` (eindeutig auch nach Restore) oder null. Admin-Formular (`StammdatenController`, `multipart/form-data`,
+  Feld `bild`, Checkbox `bild_entfernen`, Vorschau): Felder zuerst prüfen, dann Bild schreiben, dann eine Transaktion für Felder + Bild; Bildfehler als Flash `fehler['bild']`;
+  neues Bild schlägt „entfernen“. Route `GET artikelbild/(:num)` (`ArtikelbildController`, Filter **`bild`** = `BildFilter`: Session-Person **oder** gültiges, nicht gesperrtes
+  Geräte-Cookie über `Geraete::istGueltigesToken` (nur lesend), sonst 403 ohne Redirect); Antwort mit `Cache-Control: private, max-age=31536000, immutable` (vorher
+  `removeHeader`, sonst hängt CI an `no-store` an), `Content-Type` ohne charset (`setContentType($mime, '')`), `nosniff`, `inline`; fehlende Datei/kein Bild → 404; archivierte Artikel behalten ihr Bild. `ArtikelModel::buchbar` liefert
+  `bild_url`, `buchen/_artikel.php` zeigt `<img class="artikel-bild" … alt="" loading="lazy">` (CSS 4:3, `object-fit: cover`; `app.css?v=4`). Dockerfile: GD mit
+  `--with-webp` (`libwebp-dev`) und Erweiterung `exif` – Image-Änderung erst nach `docker compose up -d --build --force-recreate getraenkeliste-web` aktiv.
 - `tests/_support/DbTestCase.php` — Basisklasse für DB-Tests (Migrationen laufen vor jedem
   Test frisch gegen `getraenkeliste_test`); Helfer `personAnlegen`, `rolleGeben`,
-  `artikelAnlegen`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
+  `artikelAnlegen`, `bereichId`, `auszaehlungAnlegen(stichtag, status, bereich)`, `alsAngemeldet`/`angemeldeteSitzung` (inkl. Passwort-Fingerabdruck), `csrf`, `uhrStellen('Y-m-d H:i:s')` (fixiert `service('uhr')`;
   `tearDown` setzt alle Services zurück, damit Mocks/Einstellungs-Cache nicht lecken) (Passwort-Hashes mit Kosten 4 für Tempo)
 - `app/Libraries/Anmeldung.php` (Service `anmeldung()`) — Login am eigenen Gerät:
   `pruefePasswort` → `passwortPruefen($person, $passwort)` (auch für das aktuelle Passwort auf `konto/passwort` und `konto/pin`):
@@ -90,7 +182,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   Response). Archivieren/Passwort-Reset müssen `loescheFuerPerson` + `merkCookieLoeschen` aufrufen. Tests setzen den Cookie über
   `service('superglobals')->setCookie(...)`, nicht `$_COOKIE`.
 - `app/Filters/` — `angemeldet` (AnmeldungFilter, per Routengruppe in `Routes.php`, nicht global) und
-  `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`); `csrf` bleibt global.
+  `recht:<aktion>` (RechtFilter → 403 `errors/keine_berechtigung`), `bild` (BildFilter, Artikelbilder: Anmeldung oder Tablet, sonst 403); `csrf` bleibt global.
 - Routen: `GET/POST login`, `POST logout` (kein GET → 404), `/` → Redirect `buchen`,
   `GET buchen`, `POST buchen`, `POST buchen/rueckgaengig` (Filter `angemeldet` + `recht:buchen`). `AuthController`, `BuchenController`.
 - Buchen am eigenen Gerät (`BuchenController`): JSON-Endpunkte, CSRF per Header `X-CSRF-TOKEN` (ohne gültigen Token
@@ -101,7 +193,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   Rückgängig nur für `konto_id`/`gebucht_von_id` = angemeldete Person, sonst 403. `public/js/buchen.js` liest
   Endpunkte/Vorgang-ID/Token aus `data-*` an `#buchen-app` (auch für das Tablet gedacht). `RechtFilter` ohne Argument → 403.
 - Meine Buchungen (`MeineBuchungenController`): `GET meine-buchungen` (`angemeldet` + `recht:buchen`), `POST meine-buchungen/storno/(:num)`
-  (`recht:eigene_stornieren`). Zeitraum Stufe 1 = ab `Einstellungen::inbetriebnahme()`. `BuchungModel::fuerKonto`,
+  (`recht:eigene_stornieren`). Laufender Zeitraum je aktivem Bereich ab `zeitraeume()->beginn` (`beginnInklusiv`), darunter „Frühere Zeiträume“ je Bereich (von – bis, eigene Summe über `summeImZeitraum`, ausgeblendet ohne Abschluss). `BuchungModel::fuerKonto`,
   `vonPersonAufSammelkonten` (nur Sammelkonten, `gebucht_von_id` = Person), `offenerBetrag` (Cent, ohne stornierte). Je aktivem
   Bereich eine Tabelle; Sammelkonto-Buchungen separat und nicht im Betrag. Storno erlaubt für `konto_id`/`gebucht_von_id` = ich,
   sonst (auch unbekannte ID) 403; Redirect mit Flash success/error (BuchungAbgelehnt-Text); kein Protokolleintrag.
@@ -128,10 +220,10 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   `.dockerignore` hält `.env`, Override, `.git`, `vendor/`, `writable/`, `backups/` aus dem Build-Kontext (keine Geheimnisse im Image;
   `vendor/` entsteht im Build per `composer install --no-dev`). `.env` auf dem Pi: `chown <user>:33`, `chmod 640` (Apache liest sie über den Bind-Mount).
 - Backup/Betrieb (Task 18, aus Stufe 2 vorgezogen): `scripts/backup.sh` (Host, bash; DB-Dump per `docker exec -e MYSQL_PWD … mysqldump`,
-  `exporte_*.tar.gz` aus `writable/exporte/`, `konfig_*.tar.gz` mit `.env`/Override, `umask 077`, Monats-Promotion, Retention;
+  `exporte_*.tar.gz` aus `writable/exporte/`, `artikelbilder_*.tar.gz` aus `writable/artikelbilder/` (Task 11), `konfig_*.tar.gz` mit `.env`/Override, `umask 077`, Monats-Promotion, Retention;
   Mount-Prüfung `BACKUP_MOUNT` (leer = aus), dann ist `DB_PASS` Pflicht; alles erst als `*.tmp`, geprüft, dann `mv`, `trap` räumt `*.tmp` weg),
   `scripts/restore.sh` (prüft „Dump completed“ der Quelle, Rückfrage „ja“/`--ja`, ohne TTY nur mit `--ja`, stoppt `WEB_CONTAINER` und startet ihn per `trap` wieder, Sicherheits-Dump
-  nach `BACKUP_DIR/vor-restore/`, Export-Archiv nur mit `exporte/`-Pfaden, Konfig nie automatisch), `deploy/systemd/` (Timer 02:30,
+  nach `BACKUP_DIR/vor-restore/`, Export-Archiv nur mit `exporte/`-Pfaden, Bild-Archiv (am Namen `artikelbilder_*.tar.gz` erkannt) nur mit `artikelbilder/`-Pfaden, Konfig nie automatisch), `deploy/systemd/` (Timer 02:30,
   `EnvironmentFile=/etc/getraenkeliste-backup.env`, Vorlage `deploy/getraenkeliste-backup.env.example`). Doku: `docs/BACKUP.md`,
   `docs/DEPLOY-PI.md` (Pi-Installation, Update, Tablet, Fehlersuche). Skripte mit LF und Git-Modus 755 committen.
 
@@ -191,7 +283,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
   (`ProtokollModel::gefiltert()` + `paginate`; Seite wird explizit aus `?page=` gelesen (nur Ziffern, auf 1..letzte Seite begrenzt; Array-Parameter werden ignoriert); Pager-Template `bootstrap_full` in `Views/pagers`,
   `Config\Pager`), alt/neu als escapte Schlüssel-Wert-Liste, Person „System“ bei `person_id` NULL.
 - `tests/feature/ZugriffsschutzTest` — Routenmatrix: **jede** Route (feste Liste `ROUTEN`, bei neuen Routen ergänzen — `test_routenliste_entspricht_den_registrierten_routen`
-  gleicht sie mit `service('routes')->getRoutes()` aller Verben ab und wird sonst rot) × anonym/mitglied/admin/tablet;
+  gleicht sie mit `service('routes')->getRoutes()` aller Verben ab und wird sonst rot) × anonym/mitglied/getraenkewart/admin/tablet;
   ein Test je Fall (Session-CSRF/Cookie leben nicht über mehrere Requests), `$refresh = false` + `uniqid`-Benutzernamen für Tempo (~20 s statt ~3 min).
   `php spark routes` zeigt für `verschieben/(hoch|runter)` fälschlich `<unknown>`-Filter (Anzeigefehler, die Filter greifen; der Test belegt es).
 
@@ -199,7 +291,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
 - Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort. `App::$baseURL` defaultet auf `http://localhost:8090/` (Dev); auf dem Pi muss `.env` `app.baseURL` setzen (Compose-Env erreicht CI nicht).
   `CI_ENVIRONMENT` defaultet in `docker-compose.yml` auf `development`; auf dem Pi muss `.env` `CI_ENVIRONMENT=production` setzen (ohne Leerzeichen, Compose liest die Datei mit; README).
   Compose ignoriert die CI-Zeilen mit Punkten (`app.baseURL = '…'`, `cookie.secure = true`) – mit `docker compose --env-file <tmp> config` geprüft. `cookie.secure = true` nur hinter HTTPS (sonst kein Login).
-- **Backups (Task 18):** neue persistente Daten außerhalb der DB gehören in `writable/exporte/` oder müssen in `scripts/backup.sh` ergänzt werden; neue Geheimnisse nur in `.env` (landen im Konfig-Archiv).
+- **Backups (Task 18):** neue persistente Daten außerhalb der DB gehören in `writable/exporte/` bzw. `writable/artikelbilder/` oder müssen in `scripts/backup.sh` ergänzt werden; neue Geheimnisse nur in `.env` (landen im Konfig-Archiv).
 - `Security::$regenerate = false` ist Pflicht (doppeltes Absenden mit demselben CSRF-Token
   muss idempotent bleiben; festgenagelt in `ZugriffsschutzTest::test_csrf_token_wird_nach_post_nicht_regeneriert`); `Security::$redirect = true` — Formular-POST ohne gültiges
   CSRF-Token wird zurückgeleitet statt 403 (JSON/AJAX bekommt 403).
@@ -215,7 +307,7 @@ Aufbau (Stufe 1 komplett, plus Backup/Pi-Deployment aus Stufe 2):
 - **Sitzung ↔ Passwort:** Session trägt `passwort_fingerabdruck` (sha256 des `passwort_hash`); `Anmeldung::person()` meldet bei Abweichung ab. Wer `passwort_hash` der eigenen Sitzung ändert, ruft `fingerabdruckAktualisieren()`; Reset durch Admin beendet alle Sitzungen der Person.
 - **Tablet-CSRF-Ausnahme:** `tablet/*`-POSTs sind vom globalen `csrf` ausgenommen (`Config\Filters`) und nur über `tablet` + `tablet_csrf` erreichbar; neue Tablet-Routen gehören in die Routengruppe `tablet`. Alle übrigen POSTs behalten `csrf` (+ `Security::$regenerate = false`).
 - **Protokoll:** nie Hashes, Passwörter, PINs, Freischalt-/Einmalcodes (`Protokollierer` entfernt `*_hash`-Schlüssel; Klartext-Geheimnisse gehören nicht hinein). Sortieren und eigene Buchungen/Stornos werden nicht protokolliert.
-- **Rechte:** Berechtigung nur über Filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`) in `Routes.php`; neue Route ⇒ `ZugriffsschutzTest` erweitern.
+- **Rechte:** Berechtigung nur über Filter (`angemeldet`, `recht:<aktion>`, `tablet`, `kein_tablet`, `bild`) in `Routes.php`; neue Route ⇒ `ZugriffsschutzTest` erweitern.
 
 ## Bewusste Abweichungen vom Kassensystem (Spec Abschnitt 3)
 - Rollen und Mehrbenutzerbetrieb sind der Zweck dieser App.

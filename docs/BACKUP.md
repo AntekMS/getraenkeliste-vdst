@@ -11,6 +11,7 @@ im DB-Container ausgeführt. Einrichtung auf dem Raspberry Pi: `docs/DEPLOY-PI.m
 |---|---|---|
 | `db_JJJJ-MM-TT.sql.gz` | MySQL-Datenbank `getraenkeliste` (Personen, Buchungen, Artikel, Protokoll …) | `mysqldump --single-transaction --no-tablespaces --routines --triggers`, gzip |
 | `exporte_JJJJ-MM-TT.tar.gz` | gespeicherte Excel-Exporte (`writable/exporte/`, darf leer sein) | `tar -czf` vom Host (Bind-Mount) |
+| `artikelbilder_JJJJ-MM-TT.tar.gz` | Artikelbilder (`writable/artikelbilder/`, darf leer sein; Dateinamen stehen in der DB, gehört also zum Dump desselben Tages) | `tar -czf` vom Host (Bind-Mount) |
 | `konfig_JJJJ-MM-TT.tar.gz` | `.env` und – falls vorhanden – `docker-compose.override.yml` | `tar -czf` vom Host |
 
 **Das Konfig-Archiv enthält Geheimnisse** (DB-Passwörter aus der `.env`). Das Skript läuft mit
@@ -29,8 +30,8 @@ desselben Tages (`*.tmp`-Reste räumt ein `trap` weg).
 
 ```
 /mnt/kasse-backup/getraenkeliste/
-├── daily/        db_JJJJ-MM-TT.sql.gz, exporte_JJJJ-MM-TT.tar.gz, konfig_JJJJ-MM-TT.tar.gz   (30 Tage)
-├── monthly/      db_JJJJ-MM.sql.gz,    exporte_JJJJ-MM.tar.gz,    konfig_JJJJ-MM.tar.gz      (~12 Monate)
+├── daily/        db_JJJJ-MM-TT.sql.gz, exporte_JJJJ-MM-TT.tar.gz, artikelbilder_JJJJ-MM-TT.tar.gz, konfig_JJJJ-MM-TT.tar.gz   (30 Tage)
+├── monthly/      db_JJJJ-MM.sql.gz,    exporte_JJJJ-MM.tar.gz,    artikelbilder_JJJJ-MM.tar.gz,    konfig_JJJJ-MM.tar.gz      (~12 Monate)
 └── vor-restore/  Sicherheits-Dumps, die restore.sh vor jedem Einspielen anlegt (nicht automatisch gelöscht)
 ```
 
@@ -60,7 +61,7 @@ App-`.env`, weil diese CI-Schlüssel mit Punkten enthält (`app.baseURL …`).
 | `DB_USER` | `getraenkeuser` | |
 | `RETENTION_DAILY` | `30` | Tage |
 | `RETENTION_MONTHLY_TAGE` | `366` | Tage |
-| `APP_DIR` | Repo des Skripts | Projektverzeichnis (`.env`, `writable/exporte/`); nur für Tests umlenken |
+| `APP_DIR` | Repo des Skripts | Projektverzeichnis (`.env`, `writable/exporte/`, `writable/artikelbilder/`); nur für Tests umlenken |
 | `WEB_CONTAINER` | `getraenkeliste-web` | nur `restore.sh`: wird während des Einspielens gestoppt; leer = laufen lassen |
 
 ## Manuell ausführen
@@ -80,20 +81,25 @@ BACKUP_MOUNT= BACKUP_DIR=./backups ./scripts/backup.sh
 ## Wiederherstellung
 
 ```
-./scripts/restore.sh <db_dump.sql.gz> [exporte.tar.gz] [--ja]
+./scripts/restore.sh <db_dump.sql.gz> [exporte_<datum>.tar.gz] [artikelbilder_<datum>.tar.gz] [--ja]
 ```
 
+Archive werden am Dateinamen erkannt: `artikelbilder_*.tar.gz` sind Artikelbilder, jedes andere
+`*.tar.gz` gilt als Export-Archiv. Das Skript
+
 1. prüft die Dateien (vorhanden, gültiges gzip, Dump endet mit „Dump completed“, Export-Archiv
-   enthält nur `exporte/`),
+   enthält nur `exporte/`, Bild-Archiv nur `artikelbilder/`),
 2. fragt „Datenbank <name> wird überschrieben. Fortfahren? (ja/nein)“ (`--ja` überspringt; ohne
    Terminal, z. B. per Skript/Pipe, bricht es ohne `--ja` mit Fehlermeldung ab),
 3. stoppt den Web-Container `getraenkeliste-web` (keine Buchungen während des Einspielens;
    `WEB_CONTAINER=` lässt ihn laufen) und startet ihn am Ende wieder — per `trap` auch bei Fehlern.
-   Beim Start setzt der Entrypoint die Rechte von `writable/` (auch der eingespielten Exporte),
+   Beim Start setzt der Entrypoint die Rechte von `writable/` (auch der eingespielten Exporte und Bilder),
 4. legt einen **Sicherheits-Dump** des aktuellen Stands nach `BACKUP_DIR/vor-restore/` (bei
-   Export-Archiv auch die aktuellen Exporte),
+   Export-/Bild-Archiv auch die aktuellen Exporte bzw. Artikelbilder),
 5. spielt den Dump per `docker exec -i getraenkeliste-db mysql` ein,
-6. ersetzt optional den Inhalt von `writable/exporte/`.
+6. ersetzt optional den Inhalt von `writable/exporte/`,
+7. ersetzt optional den Inhalt von `writable/artikelbilder/` (Bild-Archiv vom selben Tag wie der
+   Dump nehmen: die Dateinamen stehen in der Datenbank; fehlende Dateien zeigen nur kein Bild).
 
 Die **Konfiguration wird bewusst nicht** automatisch zurückgespielt (Geheimnisse, und eine neue
 Installation hat oft andere Passwörter/Hostnamen) — bei Bedarf von Hand auspacken.

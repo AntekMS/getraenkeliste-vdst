@@ -91,7 +91,7 @@ final class PersonModelTest extends DbTestCase
         $this->assertCount(1, $buchbar[0]['kategorien']);
         $this->assertSame('Bier', $buchbar[0]['kategorien'][0]['name']);
         $this->assertSame(
-            ['id' => $sichtbar, 'name' => 'Helles', 'einheit' => '0,5 l', 'preis_cent' => 150],
+            ['id' => $sichtbar, 'name' => 'Helles', 'einheit' => '0,5 l', 'preis_cent' => 150, 'bild_url' => null],
             $buchbar[0]['kategorien'][0]['artikel'][0],
         );
 

@@ -99,11 +99,11 @@ Die Rechte werden zentral in einer reinen Klasse `Berechtigung` (Rolle × Bereic
 | `anmelde_tokens` | `id`, `person_id`, `selector` (unique), `token_hash`, `gueltig_bis`, `zuletzt_genutzt_at` (Remember-Token „angemeldet bleiben“, Selector/Validator-Verfahren) |
 | `person_rollen` | `person_id`, `rolle` (`getraenkewart`/`kioskwart`/`kassenwart`/`admin`); „Mitglied“ ergibt sich aus `typ = mitglied` |
 | `kategorien` | `id`, `bereich_id`, `name`, `sortierung`, `archiviert_at` |
-| `artikel` | `id`, `kategorie_id`, `name`, `preis_cent`, `einheit`, `gebinde_groesse` (Stück je Kiste, nullable), `mindestbestand`, `bestand_fuehren` (bool), `sortierung`, `archiviert_at` |
-| `buchungen` | `id`, `vorgang_id` (UUID des Warenkorbs), `konto_id` → personen, `artikel_id`, `menge`, `einzelpreis_cent` (Preis zum Buchungszeitpunkt), `quelle` (`tablet`/`web`/`korrektur`), `gebucht_von_id` (nullable), `geraet_id` (nullable), `gebucht_at`, `storniert_at`, `storniert_von_id`, `storno_grund` |
+| `artikel` | `id`, `kategorie_id`, `name`, `preis_cent`, `einheit`, `gebinde_groesse` (Stück je Kiste, nullable), `mindestbestand`, `bestand_fuehren` (bool), `bild_datei` (nullable, Dateiname unter `writable/artikelbilder/`), `bild_version` (Cache-Buster der Bild-URL), `sortierung`, `archiviert_at` |
+| `buchungen` | `id`, `vorgang_id` (UUID des Warenkorbs), `konto_id` → personen, `artikel_id`, `menge`, `einzelpreis_cent` (Preis zum Buchungszeitpunkt), `quelle` (`tablet`/`web`/`korrektur`), `gebucht_von_id` (nullable), `geraet_id` (nullable), `gebucht_at`, `storniert_at`, `storniert_von_id`, `storno_grund`, `bemerkung` (nullable, Grund einer Korrekturbuchung), `bestandswirksam` (bool, Standard 1; nur Korrekturbuchungen können 0 sein) |
 | `bestandsbewegungen` | `id`, `artikel_id`, `art` (`lieferung`/`schwund`/`korrektur`), `menge` (±), `einkaufspreis_cent` (nullable), `bemerkung`, `person_id`, `erfolgt_at` |
 | `auszaehlungen` | `id`, `bereich_id`, `art` (`start`/`regulaer`), `stichtag`, `zeitraum_von`, `status` (`entwurf`/`abgeschlossen`), `erstellt_von_id`, `abgeschlossen_at`, `datei_pfad`, `bemerkung` |
-| `auszaehlung_positionen` | `auszaehlung_id`, `artikel_id`, `anfangsbestand`, `lieferungen`, `schwund_erfasst`, `korrekturen`, `verkauft`, `soll`, `ist`, `differenz`, `preis_cent` |
+| `auszaehlung_positionen` | `auszaehlung_id`, `artikel_id`, `anfangsbestand`, `lieferungen`, `schwund_erfasst`, `korrekturen`, `verkauft`, `soll`, `ist`, `differenz`, `start` (bool: Artikel hat keine Position in der letzten abgeschlossenen Auszählung, Differenz zählt nicht als Schwund; `ist` ist im Entwurf NULL), `preis_cent` |
 | `spenden` | `id`, `spender_person_id` (nullable), `spender_freitext` (nullable), `betrag_cent`, `datum`, `zweck`, `bemerkung`, `erfasst_von_id`, `storniert_at` |
 | `geraete` | `id`, `name`, `token_hash`, `zuletzt_gesehen_at`, `gesperrt_at` |
 | `freischaltcodes` | `id`, `code_hash`, `gueltig_bis`, `erstellt_von_id`, `eingeloest_at` |
@@ -117,13 +117,13 @@ Die Sammelkonten **Couleur** und **Bund** werden per Migration als `personen` mi
 ### 6.1 Zeiträume
 - Ein Zeitraum eines Bereichs reicht vom Stichtag der letzten **abgeschlossenen** Auszählung (exklusiv) bis zum Stichtag der nächsten (inklusiv). Vor der ersten Auszählung beginnt er bei der Inbetriebnahme (`einstellungen.inbetriebnahme_at`).
 - Buchungen werden ihrem Zeitraum über `gebucht_at` und den Bereich des Artikels zugeordnet.
-- **Eingefrorene Zeiträume:** Buchungen, Bewegungen und Spenden mit Zeitpunkt ≤ letztem abgeschlossenem Stichtag sind unveränderlich (kein Storno, keine Änderung). Fehler daraus behebt der Wart mit einer **Korrekturbuchung** (`quelle = korrektur`, Menge auch negativ) im laufenden Zeitraum.
+- **Eingefrorene Zeiträume:** Buchungen, Bewegungen und Spenden mit Zeitpunkt ≤ letztem abgeschlossenem Stichtag sind unveränderlich (kein Storno, keine Änderung). Fehler daraus behebt der Wart mit einer **Korrekturbuchung** (`quelle = korrektur`, Menge auch negativ) im laufenden Zeitraum. Eine Korrekturbuchung wirkt standardmäßig nur auf den Betrag; optional ist sie bestandswirksam (Ware wurde tatsächlich entnommen bzw. zurückgegeben).
 
 ### 6.2 Bestand
 Aktueller Bestand eines Artikels =
 `ist` der letzten abgeschlossenen Auszählung (bzw. 0 ohne Auszählung)
 \+ Summe `bestandsbewegungen` danach
-− Summe `menge` nicht stornierter `buchungen` danach.
+− Summe `menge` nicht stornierter, bestandswirksamer `buchungen` danach.
 
 Der Bestand wird immer **berechnet**, nie gespeichert. Ein negativer Bestand ist erlaubt und wird dem Wart als Warnung angezeigt. Die erste Auszählung eines Bereichs (und die erste nach dem Anlegen neuer Artikel, für diese Artikel) legt den Anfangsbestand fest: Bei `art = start` gilt die Differenz nicht als Schwund und erscheint nicht in der Schwundstatistik. Für Artikel mit `bestand_fuehren = false` (z. B. Dienstleistungen im Kiosk) wird kein Bestand angezeigt.
 
@@ -133,7 +133,7 @@ Offener Betrag eines Kontos in einem Bereich = Summe (`menge` × `einzelpreis_ce
 ## 7. Abläufe und Seiten
 
 ### 7.1 Buchungsseite (Tablet und eigenes Gerät)
-- Oben die Reiter je aktivem Bereich (**Getränke | Fuxenkiosk**), darunter Kategorien als Reiter, dann Artikelkacheln (Name, Einheit, Preis, **+ / −**).
+- Oben die Reiter je aktivem Bereich (**Getränke | Fuxenkiosk**), darunter Kategorien als Reiter, dann Artikelkacheln (Name, Einheit, Preis, **+ / −**); hat ein Artikel ein Bild, steht es oben in der Kachel (dekorativ, der Name bleibt Text).
 - **Am eigenen Gerät** steht über dem Warenkorb die Auswahl **„für mich / Couleur / Bund“** (Standard: für mich). Bei Couleur/Bund ist `konto_id` das Sammelkonto und `gebucht_von_id` die angemeldete Person, damit sichtbar bleibt, wer auf ein Sammelkonto gebucht hat. Bei „für mich“ ist `gebucht_von_id` ebenfalls die Person selbst. Am Tablet entfällt die Auswahl (die Kachel bestimmt das Konto); `gebucht_von_id` ist dort die per PIN angemeldete Person bzw. bei Couleur/Bund NULL, `geraet_id` ist gesetzt.
 - Unten ein Warenkorb mit Summe und **Buchen**. Beim Öffnen bekommt der Warenkorb eine `vorgang_id` (UUID).
 - Nach dem Buchen erscheint eine Bestätigung („3× Helles, 1× Spezi – 6,50 €“) mit **Rückgängig** (storniert den ganzen Vorgang, innerhalb der Storno-Frist).
@@ -169,7 +169,7 @@ Liste der Auszählungen beider Bereiche mit Download; Spenden-Liste.
 
 ### 7.6 Admin
 - **Personen:** anlegen, bearbeiten, Rollen vergeben, archivieren. **Passwort zurücksetzen** erzeugt ein Einmal-Passwort (einmalig angezeigt) und erzwingt beim nächsten Login neues Passwort und PIN, sofern keine PIN gesetzt ist. **PIN zurücksetzen** löscht die PIN (Abschnitt 5.1). **CSV-Import** (`vorname;nachname;gruppe;benutzername`) mit Vorschau und Dublettenprüfung; jede importierte Person bekommt ein Einmal-Passwort, das nach dem Import einmalig als Liste angezeigt wird.
-- **Kategorien und Artikel** je Bereich: anlegen, umbenennen, sortieren (hoch/runter), Preis ändern (wirkt ab sofort, nie rückwirkend), archivieren.
+- **Kategorien und Artikel** je Bereich: anlegen, umbenennen, sortieren (hoch/runter), Preis ändern (wirkt ab sofort, nie rückwirkend), archivieren; je Artikel optional ein Bild hochladen oder entfernen (JPG/PNG/WebP bis 5 MB, wird neu codiert und auf 600 px verkleinert; abrufbar nur angemeldet oder am freigeschalteten Tablet).
 - **Tablets:** Freischaltcode erzeugen, Geräte umbenennen, sperren.
 - **Einstellungen:** Werte aus `einstellungen`.
 - **Änderungsprotokoll:** filterbare Liste.
