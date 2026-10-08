@@ -1,7 +1,7 @@
 # Getränkeliste VDSt – Design-Spec
 
 - **Stand:** 05.10.2026
-- **Status:** Entwurf zur Freigabe
+- **Status:** freigegeben (05.10.2026, mit Ergänzungen aus der Freigabe eingearbeitet)
 - **Repo:** https://github.com/AntekMS/getraenkeliste-vdst
 - **Bezug:** Kassensystem VDSt (https://github.com/AntekMS/kassensystem-vdst, Branch `small`)
 
@@ -38,12 +38,17 @@ Die Getränkeliste ersetzt Strichliste und Fremd-App („Getränkeliste“) des 
 |---|---|
 | Stack | CodeIgniter 4.7, PHP 8.3, MySQL 8, PhpSpreadsheet 5, Bootstrap 5 + Bootstrap Icons, Chart.js; etwas leichtgewichtiges JavaScript für die Buchungsseite (Buchen ohne Seitenneuladen) |
 | Optik | angelehnt an das Design-System des Kassensystems (`public/css/app.css`, keine `<style>`-Blöcke in Views) |
-| Deployment | eigenes Docker-Compose-Projekt `getraenkeliste` auf dem Pi: Web-Container (PHP/Apache) auf **Port 8090**, eigener MySQL-Container nur im internen Netz |
+| Deployment | eigenes Docker-Compose-Projekt `getraenkeliste` auf dem Pi: Web-Container (PHP/Apache) auf **Port 8090**, eigener MySQL-Container nur im internen Netz. Lokal läuft zusätzlich **phpMyAdmin auf Port 8091** (kein Mailpit, die App verschickt keine Mails); auf dem Pi wird phpMyAdmin wie beim Kassensystem über eine lokale, nicht versionierte Override-Datei geregelt |
 | Backup | täglich per systemd-Timer auf den vorhandenen USB-Stick `/mnt/kasse-backup`, eigener Unterordner `getraenkeliste/`, gleiches Muster wie beim Kassensystem (DB-Dump, gespeicherte Exporte, Konfiguration) |
-| Konfiguration | `.env`; `app.baseURL` und `cookie.secure` nur dort, damit später ein HTTPS-Tunnel oder Reverse-Proxy ohne Codeänderung davorgeschaltet werden kann |
+| Konfiguration | Geheimnisse und Infrastruktur nur in `.env`; `app.baseURL` und `cookie.secure` nur dort, damit später ein HTTPS-Tunnel oder Reverse-Proxy ohne Codeänderung davorgeschaltet werden kann. Die Tabelle `einstellungen` enthält **nur Betriebswerte, die der Admin ändern darf** (Abschnitt 6) |
 | Zeitzone | Europe/Berlin; alle Zeitpunkte als Serverzeit gespeichert |
 
 Die App ist **vollständig getrennt** vom Kassensystem (eigene DB, eigene Container). Mitglieder-Logins kommen so nie in die Nähe der Vereinskasse. Die Verbindung zum Kassensystem läuft ausschließlich über die Excel-Exporte.
+
+**Bewusste Abweichungen vom Kassensystem** (dessen `CLAUDE.md` schließt sie für sich aus; hier sind sie gewollt):
+- **Rollen und Mehrbenutzerbetrieb** sind der Zweck dieser App.
+- **Tabelle `einstellungen`**, beschränkt auf vom Admin änderbare Betriebswerte (siehe oben).
+- **Beträge als Cent-INT** statt DECIMAL. Die Komma-Eingabe wird wie dort mit `normalisiere_betrag()` normalisiert und danach in Cent umgerechnet.
 
 ## 4. Rollen und Rechte
 
@@ -62,22 +67,26 @@ Die Rechte werden zentral in einer reinen Klasse `Berechtigung` (Rolle × Bereic
 ## 5. Anmeldung
 
 ### 5.1 Eigenes Gerät (Handy/Laptop)
-- Benutzername + Passwort; Option „angemeldet bleiben“ (langlebiges, rotierendes Remember-Token).
+- Benutzername + Passwort; Option „angemeldet bleiben“ (langlebiges, rotierendes Remember-Token, Tabelle `anmelde_tokens`).
 - **Nur hier** sind Wart-, Kassenwart- und Admin-Bereiche erreichbar.
+- **Erster Login / nach Reset:** Wer sich mit einem Einmal-Passwort anmeldet (aus dem CSV-Import oder einem Passwort-Reset durch den Admin, `passwort_wechsel_erzwingen = 1`), muss vor allem anderen ein **neues Passwort und eine PIN** setzen. Bis dahin ist nur diese Seite und der Logout erreichbar.
+- **PIN-Reset durch den Admin** löscht die PIN (`pin_hash = NULL`). Die Person setzt danach beim nächsten Login am eigenen Gerät eine neue PIN (gleiche Pflichtseite wie oben, nur PIN).
 
 ### 5.2 Kühlschrank-Tablet
 - Ein Admin erzeugt am eigenen Gerät einen **einmaligen Freischaltcode** (gültig 15 Minuten). Wird er am Tablet eingegeben, setzt das ein dauerhaftes Geräte-Cookie (Token, in der DB nur als Hash gespeichert).
-- Das Tablet zeigt **Namenskacheln**: vorne fest **Couleur** und **Bund**, danach die zuletzt aktiven Personen, dazu ein Suchfeld und die Filter Aktive/AHs/Alle.
+- Das Tablet zeigt **Namenskacheln**: vorne fest **Couleur** und **Bund**, danach die **12 Personen mit den jüngsten Buchungen**, dazu ein Suchfeld und die Filter Aktive/AHs/Alle (`sonstige` erscheinen nur unter „Alle“).
+- Personen **ohne PIN** sind am Tablet nicht wählbar (Kachel ausgegraut mit Hinweis „Bitte zuerst am eigenen Gerät eine PIN setzen“); serverseitig wird eine PIN-Anmeldung ohne `pin_hash` abgelehnt.
 - Person antippen → **PIN (4–6 Ziffern)** → Buchungsseite → Buchen → Bestätigung → automatisch zurück zur Namensauswahl. Spätestens nach 30 s ohne Eingabe (Einstellung) geht es ebenfalls zurück.
-- **Couleur und Bund** sind ohne PIN bebuchbar, für alle.
+- **Couleur und Bund** sind am Tablet ohne PIN bebuchbar, für alle. Am eigenen Gerät siehe Abschnitt 7.1.
 - Am Tablet gibt es **nur Buchen** und die Bestätigung mit Rückgängig, auch wenn ein Admin oder Wart seinen Namen wählt.
 - Ein Admin kann Tablets jederzeit sperren.
 
 ### 5.3 Absicherung
 - Passwörter und PINs nur gehasht (`password_hash`).
-- PIN-Sperre: nach 5 Fehlversuchen ist die Person am Tablet 5 Minuten gesperrt. Login-Sperre analog für Benutzername/Passwort.
+- PIN-Sperre: nach 5 Fehlversuchen ist die Person am Tablet 5 Minuten gesperrt (`pin_fehlversuche`, `pin_gesperrt_bis`). Login-Sperre analog für Benutzername/Passwort (`login_fehlversuche`, `login_gesperrt_bis`); dieselbe reine Klasse `PinSperre` entscheidet beides.
+- Remember-Tokens werden nur als Hash gespeichert, bei jeder Nutzung rotiert und bei Logout, Passwortwechsel, Passwort-Reset und Archivierung der Person gelöscht.
 - CSRF-Schutz auf allen schreibenden Anfragen; Session-Fixation-Schutz (neue Session-ID nach Login).
-- Jede Änderung durch Wart, Kassenwart oder Admin wird ins `protokoll` geschrieben.
+- Jede Änderung durch Wart, Kassenwart oder Admin wird ins `protokoll` geschrieben. **Nicht** protokolliert werden Buchungen und Stornos, die ein Mitglied für sich selbst (oder am Tablet) vornimmt: Die Buchung selbst hält das fest (`storniert_at`, `storniert_von_id`).
 
 ## 6. Datenmodell
 
@@ -86,7 +95,8 @@ Die Rechte werden zentral in einer reinen Klasse `Berechtigung` (Rolle × Bereic
 | Tabelle | Spalten (Auszug) |
 |---|---|
 | `bereiche` | `id`, `schluessel` (`getraenke`/`kiosk`), `name` („Getränke“, „Fuxenkiosk“), `verwalter_rolle`, `aktiv` (inaktive Bereiche sind überall ausgeblendet; `kiosk` startet inaktiv, Abschnitt 12) |
-| `personen` | `id`, `vorname`, `nachname`, `anzeigename`, `gruppe` (`aktiv`/`ah`/`sonstige`), `typ` (`mitglied`/`sammelkonto`), `benutzername` (unique, nullable für Sammelkonten), `passwort_hash`, `pin_hash`, `pin_fehlversuche`, `pin_gesperrt_bis`, `archiviert_at` |
+| `personen` | `id`, `vorname`, `nachname`, `anzeigename`, `gruppe` (`aktiv`/`ah`/`sonstige`), `typ` (`mitglied`/`sammelkonto`), `benutzername` (unique, nullable für Sammelkonten), `passwort_hash`, `passwort_wechsel_erzwingen` (bool), `login_fehlversuche`, `login_gesperrt_bis`, `pin_hash` (nullable: ohne PIN am Tablet nicht wählbar), `pin_fehlversuche`, `pin_gesperrt_bis`, `archiviert_at` |
+| `anmelde_tokens` | `id`, `person_id`, `selector` (unique), `token_hash`, `gueltig_bis`, `zuletzt_genutzt_at` (Remember-Token „angemeldet bleiben“, Selector/Validator-Verfahren) |
 | `person_rollen` | `person_id`, `rolle` (`getraenkewart`/`kioskwart`/`kassenwart`/`admin`); „Mitglied“ ergibt sich aus `typ = mitglied` |
 | `kategorien` | `id`, `bereich_id`, `name`, `sortierung`, `archiviert_at` |
 | `artikel` | `id`, `kategorie_id`, `name`, `preis_cent`, `einheit`, `gebinde_groesse` (Stück je Kiste, nullable), `mindestbestand`, `bestand_fuehren` (bool), `sortierung`, `archiviert_at` |
@@ -97,7 +107,7 @@ Die Rechte werden zentral in einer reinen Klasse `Berechtigung` (Rolle × Bereic
 | `spenden` | `id`, `spender_person_id` (nullable), `spender_freitext` (nullable), `betrag_cent`, `datum`, `zweck`, `bemerkung`, `erfasst_von_id`, `storniert_at` |
 | `geraete` | `id`, `name`, `token_hash`, `zuletzt_gesehen_at`, `gesperrt_at` |
 | `freischaltcodes` | `id`, `code_hash`, `gueltig_bis`, `erstellt_von_id`, `eingeloest_at` |
-| `einstellungen` | `schluessel`, `wert` (z. B. `storno_frist_min` = 10, `tablet_timeout_s` = 30, `vereinsname`, `erinnerung_tage` = 31) |
+| `einstellungen` | `schluessel`, `wert` – nur vom Admin änderbare Betriebswerte, z. B. `storno_frist_min` = 10, `tablet_timeout_s` = 30, `vereinsname`, `erinnerung_tage` = 31, `inbetriebnahme_at` (Zeitpunkt der Inbetriebnahme, von der Migration auf „jetzt“ gesetzt; Beginn des ersten Zeitraums, Abschnitt 6.1). Keine Geheimnisse, keine Infrastruktur (die bleiben in `.env`) |
 | `protokoll` | `id`, `person_id`, `aktion`, `tabelle`, `datensatz_id`, `alt` (JSON), `neu` (JSON), `erfolgt_at` |
 
 Indizes: unique (`vorgang_id`, `artikel_id`) in `buchungen` (Idempotenz); (`konto_id`, `gebucht_at`); (`artikel_id`, `gebucht_at`); (`artikel_id`, `erfolgt_at`).
@@ -105,7 +115,7 @@ Indizes: unique (`vorgang_id`, `artikel_id`) in `buchungen` (Idempotenz); (`kont
 Die Sammelkonten **Couleur** und **Bund** werden per Migration als `personen` mit `typ = sammelkonto` angelegt.
 
 ### 6.1 Zeiträume
-- Ein Zeitraum eines Bereichs reicht vom Stichtag der letzten **abgeschlossenen** Auszählung (exklusiv) bis zum Stichtag der nächsten (inklusiv). Vor der ersten Auszählung beginnt er bei der Inbetriebnahme.
+- Ein Zeitraum eines Bereichs reicht vom Stichtag der letzten **abgeschlossenen** Auszählung (exklusiv) bis zum Stichtag der nächsten (inklusiv). Vor der ersten Auszählung beginnt er bei der Inbetriebnahme (`einstellungen.inbetriebnahme_at`).
 - Buchungen werden ihrem Zeitraum über `gebucht_at` und den Bereich des Artikels zugeordnet.
 - **Eingefrorene Zeiträume:** Buchungen, Bewegungen und Spenden mit Zeitpunkt ≤ letztem abgeschlossenem Stichtag sind unveränderlich (kein Storno, keine Änderung). Fehler daraus behebt der Wart mit einer **Korrekturbuchung** (`quelle = korrektur`, Menge auch negativ) im laufenden Zeitraum.
 
@@ -124,13 +134,14 @@ Offener Betrag eines Kontos in einem Bereich = Summe (`menge` × `einzelpreis_ce
 
 ### 7.1 Buchungsseite (Tablet und eigenes Gerät)
 - Oben die Reiter je aktivem Bereich (**Getränke | Fuxenkiosk**), darunter Kategorien als Reiter, dann Artikelkacheln (Name, Einheit, Preis, **+ / −**).
+- **Am eigenen Gerät** steht über dem Warenkorb die Auswahl **„für mich / Couleur / Bund“** (Standard: für mich). Bei Couleur/Bund ist `konto_id` das Sammelkonto und `gebucht_von_id` die angemeldete Person, damit sichtbar bleibt, wer auf ein Sammelkonto gebucht hat. Bei „für mich“ ist `gebucht_von_id` ebenfalls die Person selbst. Am Tablet entfällt die Auswahl (die Kachel bestimmt das Konto); `gebucht_von_id` ist dort die per PIN angemeldete Person bzw. bei Couleur/Bund NULL, `geraet_id` ist gesetzt.
 - Unten ein Warenkorb mit Summe und **Buchen**. Beim Öffnen bekommt der Warenkorb eine `vorgang_id` (UUID).
 - Nach dem Buchen erscheint eine Bestätigung („3× Helles, 1× Spezi – 6,50 €“) mit **Rückgängig** (storniert den ganzen Vorgang, innerhalb der Storno-Frist).
 - Bestand 0 oder negativ blockiert nicht: Es wird gebucht, der Wart sieht eine Warnung.
 - Archivierte Artikel werden nicht angezeigt und serverseitig abgelehnt.
 
 ### 7.2 Eigener Bereich des Mitglieds (nur eigenes Gerät)
-- **Meine Buchungen** im laufenden Zeitraum je Bereich, stornierbar innerhalb der Storno-Frist
+- **Meine Buchungen** im laufenden Zeitraum je Bereich, stornierbar innerhalb der Storno-Frist; dazu gesondert die Buchungen, die die Person selbst auf Couleur/Bund gebucht hat (`gebucht_von_id`), ebenfalls innerhalb der Frist stornierbar. Sie zählen nicht zum eigenen offenen Betrag.
 - offener Betrag je Bereich; frühere Zeiträume mit Summen
 - Passwort und PIN ändern
 
@@ -157,7 +168,7 @@ Liste der Auszählungen beider Bereiche mit Download; Spenden-Liste.
 - Excel-Export für einen frei gewählten Zeitraum (Abschnitt 8.2).
 
 ### 7.6 Admin
-- **Personen:** anlegen, bearbeiten, Rollen vergeben, Passwort/PIN zurücksetzen (Einmal-Passwort, Wechsel beim nächsten Login erzwungen), archivieren; **CSV-Import** (`vorname;nachname;gruppe;benutzername`) mit Vorschau und Dublettenprüfung.
+- **Personen:** anlegen, bearbeiten, Rollen vergeben, archivieren. **Passwort zurücksetzen** erzeugt ein Einmal-Passwort (einmalig angezeigt) und erzwingt beim nächsten Login neues Passwort und PIN, sofern keine PIN gesetzt ist. **PIN zurücksetzen** löscht die PIN (Abschnitt 5.1). **CSV-Import** (`vorname;nachname;gruppe;benutzername`) mit Vorschau und Dublettenprüfung; jede importierte Person bekommt ein Einmal-Passwort, das nach dem Import einmalig als Liste angezeigt wird.
 - **Kategorien und Artikel** je Bereich: anlegen, umbenennen, sortieren (hoch/runter), Preis ändern (wirkt ab sofort, nie rückwirkend), archivieren.
 - **Tablets:** Freischaltcode erzeugen, Geräte umbenennen, sperren.
 - **Einstellungen:** Werte aus `einstellungen`.
@@ -219,7 +230,7 @@ PHPUnit im Web-Container (wie beim Kassensystem).
 
 - **Reine Klassen ohne DB:** `BestandRechner`, `AuszaehlungRechner` (Soll/Ist/Differenz, Euro-Werte), `Berechtigung` (komplette Rollenmatrix), `PinSperre`, `StornoFrist`, `ZeitraumErmittler`, `Reichweite`.
 - **Excel-Export:** Datei erzeugen, mit PhpSpreadsheet wieder einlesen und prüfen: Blattnamen, Kopfzeilen exakt wie in 8.2, `Meta`-Werte, Kontrollsummen = Summe `Abrechnung`, keine Formelzellen, keine verbundenen Zellen.
-- **Feature-Tests:** Buchen inkl. doppeltem Absenden; Storno innerhalb/außerhalb der Frist; eingefrorener Zeitraum; Zugriffsschutz aller Wart-, Kassenwart- und Admin-Routen; Tablet-Sitzung erreicht nur die Buchungsroute; PIN-Sperre; Freischaltcode einmalig und befristet.
+- **Feature-Tests:** Buchen inkl. doppeltem Absenden; Storno innerhalb/außerhalb der Frist; eingefrorener Zeitraum; Zugriffsschutz aller Wart-, Kassenwart- und Admin-Routen; Tablet-Sitzung erreicht nur die Buchungsroute; PIN-Sperre und Login-Sperre; Freischaltcode einmalig und befristet; erzwungener Passwort-/PIN-Wechsel sperrt alle anderen Routen; Person ohne PIN am Tablet abgelehnt; Buchung auf Couleur/Bund am eigenen Gerät speichert `gebucht_von_id`; Remember-Token rotiert und wird nach Passwortwechsel ungültig.
 
 ## 11. Inbetriebnahme
 
@@ -236,8 +247,10 @@ Eine Spec, Umsetzung Stufe für Stufe; jede Stufe ist für sich nutzbar.
 
 | Stufe | Umfang |
 |---|---|
-| 1 – Kern | Projektgerüst, Docker, Migrationen, Login (Passwort und Tablet/PIN), Rollen/`Berechtigung`, Buchungsseite, Meine Buchungen, Storno, Admin (Personen inkl. CSV, Kategorien, Artikel, Tablets, Einstellungen, Protokoll), Couleur/Bund |
+| 1 – Kern | Projektgerüst, Docker, Migrationen, Login (Passwort und Tablet/PIN), Rollen/`Berechtigung`, Buchungsseite, Meine Buchungen, Storno, Admin (Personen inkl. CSV, Kategorien, Artikel, Tablets, Einstellungen, Protokoll), Couleur/Bund. **Migrationen nur für die Tabellen, die Stufe 1 braucht** (`bereiche`, `personen`, `person_rollen`, `anmelde_tokens`, `kategorien`, `artikel`, `buchungen`, `geraete`, `freischaltcodes`, `einstellungen`, `protokoll`); `bereiche` wird mit `getraenke` (aktiv) und `kiosk` (inaktiv) angelegt. Kiosk-Stammdaten sind bis Stufe 3 in der Oberfläche ausgeblendet. Ohne Auszählungen gibt es in Stufe 1 genau einen Zeitraum ab `inbetriebnahme_at` |
 | 2 – Getränkewart | Bestand, Lieferungen, Schwund/Korrekturen, Buchungsverwaltung, Auszählung inkl. Einfrieren, Excel-Export der Auszählung, Erinnerung, Backup |
 | 3 – Ausbau | Statistikseite und Bestellhilfe, Spenden-Liste und Spenden-Export, Kassenwart-Bereich, Freischaltung des Bereichs `kiosk` mit Kioskwart |
 
 Das Datenmodell enthält von Anfang an Bereiche, sodass Stufe 3 den Fuxenkiosk nur noch freischaltet und keinen Umbau braucht.
+
+Das Backup (Abschnitt 3) wurde aus Stufe 2 nach Stufe 1 vorgezogen, damit die App schon mit Stufe 1 auf dem Pi betrieben werden kann (`scripts/backup.sh`, `scripts/restore.sh`, systemd-Timer, `docs/BACKUP.md`, `docs/DEPLOY-PI.md`).

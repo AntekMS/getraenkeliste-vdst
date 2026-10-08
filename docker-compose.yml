@@ -1,0 +1,63 @@
+services:
+  # CodeIgniter 4 Getränkeliste
+  getraenkeliste-web:
+    build: .
+    container_name: getraenkeliste-web
+    ports:
+      - "8090:80"
+    depends_on:
+      - getraenkeliste-db
+    volumes:
+      - ./:/var/www/html/:cached
+      - ./writable:/var/www/html/writable:delegated
+      - getraenkeliste_vendor:/var/www/html/vendor
+    environment:
+      - DB_HOST=getraenkeliste-db
+      - DB_NAME=getraenkeliste
+      - DB_USER=getraenkeuser
+      - DB_PASS=${DB_PASS:-getraenkepass123}
+      # Default nur für lokale Entwicklung; auf dem Pi setzt .env CI_ENVIRONMENT=production (README).
+      - CI_ENVIRONMENT=${CI_ENVIRONMENT:-development}
+      - TZ=Europe/Berlin
+    networks:
+      - getraenkeliste-network
+
+  # MySQL (nur im Docker-Netzwerk erreichbar)
+  getraenkeliste-db:
+    image: mysql:8.0
+    container_name: getraenkeliste-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-getraenkeroot123}
+      MYSQL_DATABASE: getraenkeliste
+      MYSQL_USER: getraenkeuser
+      MYSQL_PASSWORD: ${DB_PASS:-getraenkepass123}
+      TZ: Europe/Berlin
+    volumes:
+      - getraenkeliste_mysql_data:/var/lib/mysql
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - getraenkeliste-network
+
+  # phpMyAdmin (auf dem Pi per docker-compose.override.yml abschalten)
+  getraenkeliste-phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: getraenkeliste-phpmyadmin
+    ports:
+      - "8091:80"
+    environment:
+      PMA_HOST: getraenkeliste-db
+      PMA_PORT: 3306
+      PMA_USER: getraenkeuser
+      PMA_PASSWORD: ${DB_PASS:-getraenkepass123}
+    depends_on:
+      - getraenkeliste-db
+    networks:
+      - getraenkeliste-network
+
+volumes:
+  getraenkeliste_mysql_data:
+  getraenkeliste_vendor:
+
+networks:
+  getraenkeliste-network:
+    driver: bridge
