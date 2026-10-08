@@ -350,7 +350,7 @@ final class AuszaehlungServiceTest extends DbTestCase
         $this->assertSame(1, db_connect()->table('auszaehlungen')->where('status', 'abgeschlossen')->countAllResults());
         $this->assertNull((new \App\Models\AuszaehlungModel())->entwurf($this->bereich));
 
-        $zweite =$service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 3], null);
+        $zweite = $service->schliesseAb($this->bereich, $this->person, $this->zeit('2026-10-09 10:00:00'), [$a => 3], null);
 
         $this->assertSame('start', $this->kopfVon($erste)['art']);
         $kopf = $this->kopfVon($zweite);

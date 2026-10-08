@@ -57,24 +57,47 @@ document.addEventListener('click', function (event) {
     const knopf = event.target.closest('button[data-confirm], input[type="submit"][data-confirm]');
     if (knopf && !window.confirm(knopf.dataset.confirm)) {
         event.preventDefault();
-        return;
-    }
-    if (knopf && knopf.form) {
-        sperreNachBestaetigung(knopf);
     }
 });
 
-// Nach der Bestätigung den Knopf sperren (kein zweiter Abschluss per Doppelklick); dieser Klick sendet das Formular noch.
-function sperreNachBestaetigung(knopf) {
-    setTimeout(function () {
-        knopf.disabled = true;
-        knopf.insertAdjacentHTML('afterbegin', '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>');
-    }, 0);
-}
-
+// Gesperrt wird erst beim tatsächlichen Absenden (nach der Browser-Validierung), nicht schon beim Klick.
 document.addEventListener('submit', function (event) {
     const formular = event.target;
     if (formular.matches('form[data-confirm]') && !window.confirm(formular.dataset.confirm)) {
         event.preventDefault();
+        return;
     }
+    if (event.defaultPrevented) {
+        return;
+    }
+    const knopf = event.submitter;
+    if (knopf && (knopf.hasAttribute('data-confirm') || formular.hasAttribute('data-confirm'))) {
+        sperreKnopf(knopf);
+    }
+});
+
+// Knopf sperren (kein zweiter Abschluss per Doppelklick); verzögert, damit der Knopfwert noch ins Formular gelangt.
+function sperreKnopf(knopf) {
+    setTimeout(function () {
+        if (knopf.disabled) {
+            return;
+        }
+        knopf.disabled = true;
+        knopf.setAttribute('data-gesperrt', '1');
+        knopf.insertAdjacentHTML('afterbegin', '<span class="spinner-border spinner-border-sm me-1 js-sperr-spinner" role="status" aria-hidden="true"></span>');
+    }, 0);
+}
+
+// Zurück/Vor aus dem Seitencache (bfcache): gesperrte Knöpfe wieder freigeben
+window.addEventListener('pageshow', function (event) {
+    if (!event.persisted) {
+        return;
+    }
+    document.querySelectorAll('[data-gesperrt]').forEach(function (knopf) {
+        knopf.disabled = false;
+        knopf.removeAttribute('data-gesperrt');
+        knopf.querySelectorAll('.js-sperr-spinner').forEach(function (spinner) {
+            spinner.remove();
+        });
+    });
 });
