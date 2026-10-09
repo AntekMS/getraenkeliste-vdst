@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models;
 
 use CodeIgniter\Model;
+use DateTimeImmutable;
+use DateTimeZone;
 
 class AuszaehlungModel extends Model
 {
@@ -61,6 +63,43 @@ class AuszaehlungModel extends Model
             ->where('au.bereich_id', $bereichId)->where('au.status', 'abgeschlossen')
             ->orderBy('au.stichtag', 'DESC')->orderBy('au.id', 'DESC')
             ->get()->getResultArray();
+    }
+
+    /**
+     * Die letzten `$anzahl` abgeschlossenen Auszählungen des Bereichs (neueste zuerst), je mit `zeitraum` (siehe `zeitraum()`).
+     * Lädt eine Auszählung mehr, um zu wissen, ob die älteste geladene einen Vorgänger hat (eine Abfrage).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function letzteMitZeitraum(int $bereichId, int $anzahl): array
+    {
+        $zeilen = $this->abgeschlossenQuery($bereichId)->findAll(max(1, $anzahl) + 1);
+        $liste  = [];
+
+        foreach (array_slice($zeilen, 0, max(1, $anzahl)) as $i => $zeile) {
+            $liste[] = $zeile + ['zeitraum' => self::zeitraum($zeile, ! isset($zeilen[$i + 1]))];
+        }
+
+        return $liste;
+    }
+
+    /**
+     * Zeitraum einer abgeschlossenen Auszählung = (zeitraum_von, stichtag]; `zeitraum_von` gehört nur dazu, wenn es die
+     * erste abgeschlossene Auszählung des Bereichs ist (Beginn = Inbetriebnahme). Einzige Stelle dieser Regel (Export, Statistik).
+     *
+     * @param array<string, mixed> $auszaehlung
+     *
+     * @return array{von: DateTimeImmutable, bis: DateTimeImmutable, von_inklusiv: bool}
+     */
+    public static function zeitraum(array $auszaehlung, bool $ersteAbgeschlossene): array
+    {
+        $zone = new DateTimeZone('Europe/Berlin');
+
+        return [
+            'von'          => new DateTimeImmutable((string) $auszaehlung['zeitraum_von'], $zone),
+            'bis'          => new DateTimeImmutable((string) $auszaehlung['stichtag'], $zone),
+            'von_inklusiv' => $ersteAbgeschlossene,
+        ];
     }
 
     private function abgeschlossenQuery(int $bereichId): static

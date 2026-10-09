@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Libraries;
 
+use App\Models\AuszaehlungModel;
 use App\Models\PersonModel;
 use DateTimeImmutable;
 
@@ -20,6 +21,12 @@ class StatistikService
 {
     private const FENSTER_TAGE = 28;
     private const MAX_WOCHEN   = 104;
+
+    /** Schwund-Werte eines Artikels (oder Zeitraums) vor der Quote. */
+    private const SCHWUND_LEER = [
+        'erfasst_menge' => 0, 'erfasst_cent' => 0, 'unerklaert_menge' => 0, 'unerklaert_cent' => 0,
+        'ueberschuss_menge' => 0, 'ueberschuss_cent' => 0, 'verkauft' => 0,
+    ];
 
     /**
      * @return array{grundlage_tage: int, reichweite_tage: int, kategorien: list<array{kategorie_id: int, kategorie_name: string, artikel: list<array<string, mixed>>}>}
@@ -205,6 +212,245 @@ class StatistikService
         }
 
         return array_values($ergebnis);
+    }
+
+    /**
+     * Schwund je abgeschlossenem Zeitraum (Statistik-Spec 3.1/3.2), neueste zuerst. Erfasst = Schwund-Bewegungen im Zeitraum
+     * × Preis der Position dieser Auszählung (ohne Position: aktueller Preis); unerklärt/Überschuss = gespeicherte Differenzen
+     * der Positionen ohne `start` (Start-Auszählung: beides 0); verkauft = Σ `verkauft` der Positionen.
+     *
+     * @return list<array{auszaehlung_id: int, von: string, bis: string, art: string, erfasst_menge: int, erfasst_cent: int, unerklaert_menge: int, unerklaert_cent: int, ueberschuss_menge: int, ueberschuss_cent: int, verkauft: int, quote: ?float}>
+     */
+    public function schwundZeitraeume(int $bereichId, int $anzahl = 6): array
+    {
+        $daten = $this->schwundDaten($bereichId, $anzahl);
+        $liste = [];
+
+        foreach ($daten['zeitraeume'] as $i => $zeitraum) {
+            $summe = self::SCHWUND_LEER;
+
+            foreach ($daten['werte'] as $jeZeitraum) {
+                foreach ($jeZeitraum[$i] ?? [] as $schluessel => $wert) {
+                    $summe[$schluessel] += $wert;
+                }
+            }
+
+            $liste[] = $zeitraum + $summe
+                + ['quote' => StatistikRechner::quote($summe['erfasst_menge'] + $summe['unerklaert_menge'], $summe['verkauft'])];
+        }
+
+        return $liste;
+    }
+
+    /**
+     * Artikel mit dem meisten Schwund über die letzten `$zeitraeume` abgeschlossenen Zeiträume (Spec 3.3): nur Artikel mit
+     * erfasstem oder unerklärtem Schwund, sortiert nach `gesamt_cent` absteigend, dann Name.
+     *
+     * @return list<array{artikel_id: int, name: string, erfasst_menge: int, unerklaert_menge: int, gesamt_cent: int, quote: ?float}>
+     */
+    public function schwundArtikel(int $bereichId, int $zeitraeume = 6, int $limit = 10): array
+    {
+        $daten = $this->schwundDaten($bereichId, $zeitraeume);
+        $liste = [];
+
+        foreach ($daten['werte'] as $artikelId => $jeZeitraum) {
+            $summe = self::SCHWUND_LEER;
+
+            foreach ($jeZeitraum as $werte) {
+                foreach ($werte as $schluessel => $wert) {
+                    $summe[$schluessel] += $wert;
+                }
+            }
+
+            $fehlmenge = $summe['erfasst_menge'] + $summe['unerklaert_menge'];
+
+            if ($fehlmenge === 0) {
+                continue;
+            }
+
+            $liste[] = [
+                'artikel_id'       => $artikelId,
+                'name'             => $daten['namen'][$artikelId] ?? '',
+                'erfasst_menge'    => $summe['erfasst_menge'],
+                'unerklaert_menge' => $summe['unerklaert_menge'],
+                'gesamt_cent'      => $summe['erfasst_cent'] + $summe['unerklaert_cent'],
+                'quote'            => StatistikRechner::quote($fehlmenge, $summe['verkauft']),
+            ];
+        }
+
+        usort($liste, static fn (array $x, array $y): int => [$y['gesamt_cent'], $x['name'], $x['artikel_id']] <=> [$x['gesamt_cent'], $y['name'], $y['artikel_id']]);
+
+        return array_slice($liste, 0, max(0, $limit));
+    }
+
+    /**
+     * Schwund eines Artikels je abgeschlossenem Zeitraum (neueste zuerst); Artikel eines anderen Bereichs → [].
+     *
+     * @return list<array{von: string, bis: string, erfasst_menge: int, unerklaert_menge: int, gesamt_cent: int}>
+     */
+    public function schwundArtikelVerlauf(int $bereichId, int $artikelId, int $zeitraeume = 6): array
+    {
+        $gehoertDazu = db_connect()->table('artikel a')->join('kategorien k', 'k.id = a.kategorie_id')
+            ->where('a.id', $artikelId)->where('k.bereich_id', $bereichId)->countAllResults() === 1;
+
+        if (! $gehoertDazu) {
+            return [];
+        }
+
+        $daten = $this->schwundDaten($bereichId, $zeitraeume, $artikelId);
+        $liste = [];
+
+        foreach ($daten['zeitraeume'] as $i => $zeitraum) {
+            $werte   = $daten['werte'][$artikelId][$i] ?? self::SCHWUND_LEER;
+            $liste[] = [
+                'von'              => $zeitraum['von'],
+                'bis'              => $zeitraum['bis'],
+                'erfasst_menge'    => $werte['erfasst_menge'],
+                'unerklaert_menge' => $werte['unerklaert_menge'],
+                'gesamt_cent'      => $werte['erfasst_cent'] + $werte['unerklaert_cent'],
+            ];
+        }
+
+        return $liste;
+    }
+
+    /**
+     * Erfasster Schwund im laufenden Zeitraum (nach dem letzten Stichtag, ohne Abschluss ab Inbetriebnahme inklusiv), aktueller Preis.
+     *
+     * @return array{menge: int, cent: int}
+     */
+    public function schwundLaufend(int $bereichId): array
+    {
+        $zeitraeume = service('zeitraeume');
+        $vergleich  = $zeitraeume->beginnInklusiv($bereichId) ? '>=' : '>';
+
+        $zeile = db_connect()->table('bestandsbewegungen m')
+            ->select('COALESCE(SUM(ABS(m.menge)), 0) AS menge, COALESCE(SUM(ABS(m.menge) * CAST(a.preis_cent AS SIGNED)), 0) AS cent', false)
+            ->join('artikel a', 'a.id = m.artikel_id')
+            ->join('kategorien k', 'k.id = a.kategorie_id')
+            ->where('k.bereich_id', $bereichId)
+            ->where('m.art', 'schwund')
+            ->where("m.erfolgt_at {$vergleich}", $zeitraeume->beginn($bereichId)->format('Y-m-d H:i:s'))
+            ->get()->getRowArray();
+
+        return ['menge' => (int) $zeile['menge'], 'cent' => (int) $zeile['cent']];
+    }
+
+    /**
+     * Schwund-Rohwerte der letzten `$anzahl` abgeschlossenen Zeiträume mit festen vier Abfragen (Auszählungen, Positionen,
+     * Bewegungen, Artikel). Zeitraum-Regel aus `AuszaehlungModel::zeitraum` (wie der Excel-Export).
+     *
+     * @return array{zeitraeume: list<array{auszaehlung_id: int, von: string, bis: string, art: string}>, werte: array<int, array<int, array<string, int>>>, namen: array<int, string>}
+     */
+    private function schwundDaten(int $bereichId, int $anzahl, ?int $nurArtikel = null): array
+    {
+        $auszaehlungen = (new AuszaehlungModel())->letzteMitZeitraum($bereichId, $anzahl);
+
+        if ($auszaehlungen === []) {
+            return ['zeitraeume' => [], 'werte' => [], 'namen' => []];
+        }
+
+        $db         = db_connect();
+        $index      = [];
+        $zeitraeume = [];
+        $fenster    = [];
+
+        foreach ($auszaehlungen as $i => $a) {
+            $index[(int) $a['id']] = $i;
+            $zeitraeume[]          = [
+                'auszaehlung_id' => (int) $a['id'],
+                'von'            => $a['zeitraum']['von']->format('Y-m-d H:i:s'),
+                'bis'            => $a['zeitraum']['bis']->format('Y-m-d H:i:s'),
+                'art'            => (string) $a['art'],
+            ];
+            $fenster[] = [$zeitraeume[$i]['von'], $zeitraeume[$i]['bis'], $a['zeitraum']['von_inklusiv']];
+        }
+
+        $werte  = [];
+        $preise = [];
+
+        $positionen = $db->table('auszaehlung_positionen')
+            ->select('auszaehlung_id, artikel_id, verkauft, differenz, start, preis_cent')
+            ->whereIn('auszaehlung_id', array_keys($index));
+
+        if ($nurArtikel !== null) {
+            $positionen->where('artikel_id', $nurArtikel);
+        }
+
+        foreach ($positionen->get()->getResultArray() as $p) {
+            $i         = $index[(int) $p['auszaehlung_id']];
+            $artikelId = (int) $p['artikel_id'];
+            $differenz = (int) $p['differenz'];
+            $preis     = (int) $p['preis_cent'];
+            $w         = $werte[$artikelId][$i] ?? self::SCHWUND_LEER;
+            $zaehlt    = (int) $p['start'] === 0 && $zeitraeume[$i]['art'] !== 'start';
+
+            $preise[$artikelId][$i] = $preis;
+            $w['verkauft'] += (int) $p['verkauft'];
+
+            if ($zaehlt && $differenz < 0) {
+                $w['unerklaert_menge'] -= $differenz;
+                $w['unerklaert_cent'] -= $differenz * $preis;
+            } elseif ($zaehlt && $differenz > 0) {
+                $w['ueberschuss_menge'] += $differenz;
+                $w['ueberschuss_cent'] += $differenz * $preis;
+            }
+
+            $werte[$artikelId][$i] = $w;
+        }
+
+        $bewegungen = $db->table('bestandsbewegungen m')
+            ->select('m.artikel_id, m.erfolgt_at, SUM(ABS(m.menge)) AS menge', false)
+            ->join('artikel a', 'a.id = m.artikel_id')
+            ->join('kategorien k', 'k.id = a.kategorie_id')
+            ->where('k.bereich_id', $bereichId)
+            ->where('m.art', 'schwund')
+            ->where('m.erfolgt_at >=', end($fenster)[0])
+            ->where('m.erfolgt_at <=', $fenster[0][1])
+            ->groupBy(['m.artikel_id', 'm.erfolgt_at']);
+
+        if ($nurArtikel !== null) {
+            $bewegungen->where('m.artikel_id', $nurArtikel);
+        }
+
+        $erfasst = [];
+
+        foreach ($bewegungen->get()->getResultArray() as $m) {
+            $zeit = (string) $m['erfolgt_at'];
+
+            foreach ($fenster as $i => [$von, $bis, $inklusiv]) {
+                if (($zeit > $von || ($inklusiv && $zeit === $von)) && $zeit <= $bis) {
+                    $erfasst[(int) $m['artikel_id']][$i] = ($erfasst[(int) $m['artikel_id']][$i] ?? 0) + (int) $m['menge'];
+                    break;
+                }
+            }
+        }
+
+        $ids     = array_keys($werte + $erfasst);
+        $artikel = [];
+
+        if ($ids !== []) {
+            foreach ($db->table('artikel')->select('id, name, preis_cent')->whereIn('id', $ids)->get()->getResultArray() as $a) {
+                $artikel[(int) $a['id']] = $a;
+            }
+        }
+
+        foreach ($erfasst as $artikelId => $jeZeitraum) {
+            foreach ($jeZeitraum as $i => $menge) {
+                $w = $werte[$artikelId][$i] ?? self::SCHWUND_LEER;
+
+                $w['erfasst_menge'] += $menge;
+                $w['erfasst_cent'] += $menge * ($preise[$artikelId][$i] ?? (int) $artikel[$artikelId]['preis_cent']);
+
+                $werte[$artikelId][$i] = $w;
+            }
+        }
+
+        return [
+            'zeitraeume' => $zeitraeume,
+            'werte'      => $werte,
+            'namen'      => array_map(static fn (array $a): string => (string) $a['name'], $artikel),
+        ];
     }
 
     /**

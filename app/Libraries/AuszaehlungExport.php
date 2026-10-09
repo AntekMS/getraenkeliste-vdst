@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Libraries;
 
+use App\Models\AuszaehlungModel;
 use App\Models\AuszaehlungPositionModel;
 use App\Models\PersonModel;
 use CodeIgniter\Database\BaseBuilder;
@@ -199,12 +200,7 @@ class AuszaehlungExport
             ->orderBy('stichtag', 'DESC')->orderBy('id', 'DESC')->limit(1)
             ->get()->getRowArray();
 
-        return [
-            'von'          => self::zeit((string) $auszaehlung['zeitraum_von']),
-            'bis'          => self::zeit((string) $auszaehlung['stichtag']),
-            'von_inklusiv' => $vorherige === null,
-            'vorherige'    => $vorherige,
-        ];
+        return AuszaehlungModel::zeitraum($auszaehlung, $vorherige === null) + ['vorherige' => $vorherige];
     }
 
     /**

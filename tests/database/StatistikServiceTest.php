@@ -347,4 +347,159 @@ final class StatistikServiceTest extends DbTestCase
 
         $this->assertSame([], (new StatistikService())->lieferhistorie($this->bereichId('kiosk') + 1000, 20));
     }
+
+    private function position(int $auszaehlung, int $artikel, int $differenz, int $preis, int $verkauft, int $start = 0): void
+    {
+        db_connect()->table('auszaehlung_positionen')->insert([
+            'auszaehlung_id' => $auszaehlung, 'artikel_id' => $artikel, 'anfangsbestand' => 0, 'lieferungen' => 0,
+            'schwund_erfasst' => 0, 'korrekturen' => 0, 'verkauft' => $verkauft, 'soll' => 0, 'ist' => $differenz,
+            'differenz' => $differenz, 'start' => $start, 'preis_cent' => $preis,
+        ]);
+    }
+
+    /**
+     * Zwei abgeschlossene Zeiträume (Start + regulär) mit Schwund, Differenzen, Start-Position und Überschuss.
+     *
+     * @return array{a: int, b: int, c: int, d: int, kiosk: int, z1: int, z2: int}
+     */
+    private function schwundSzenario(): array
+    {
+        $a     = $this->artikelAnlegen(['name' => 'Helles', 'preis_cent' => 150]);
+        $b     = $this->artikelAnlegen(['name' => 'Pils', 'preis_cent' => 200]);
+        $c     = $this->artikelAnlegen(['name' => 'Radler', 'preis_cent' => 180]);
+        $d     = $this->artikelAnlegen(['name' => 'Wasser', 'preis_cent' => 100]);
+        $kiosk = $this->artikelAnlegen(['kategorie_id' => $this->kioskKategorie(), 'name' => 'Riegel', 'preis_cent' => 90]);
+
+        $z1 = $this->auszaehlungAnlegen('2026-09-10 12:00:00', 'abgeschlossen', 'getraenke', ['art' => 'start', 'zeitraum_von' => '2026-09-01 00:00:00']);
+        $this->position($z1, $a, -3, 140, 10, 1);
+        $this->position($z1, $b, 2, 190, 5, 1);
+
+        $z2 = $this->auszaehlungAnlegen('2026-10-01 18:00:00', 'abgeschlossen', 'getraenke', ['zeitraum_von' => '2026-09-10 12:00:00']);
+        $this->position($z2, $a, -4, 150, 40);
+        $this->position($z2, $b, 3, 200, 20);
+        $this->position($z2, $c, -5, 180, 0, 1); // neuer Artikel: zählt nicht als unerklärt
+
+        // Entwurf und Kiosk-Auszählung bleiben außen vor
+        $entwurf = $this->auszaehlungAnlegen('2026-10-05 12:00:00', 'entwurf', 'getraenke', ['zeitraum_von' => '2026-10-01 18:00:00']);
+        $this->position($entwurf, $a, -50, 150, 1);
+        $kioskZ = $this->auszaehlungAnlegen('2026-09-20 12:00:00', 'abgeschlossen', 'kiosk', ['zeitraum_von' => '2026-09-01 00:00:00']);
+        $this->position($kioskZ, $kiosk, -9, 90, 3);
+
+        // Zeitraum 1: Beginn inklusiv (erste Auszählung), Stichtag inklusiv
+        $this->bewegung($a, -1, '2026-09-01 00:00:00', 'schwund');
+        $this->bewegung($a, -1, '2026-09-10 12:00:00', 'schwund');
+        $this->bewegung($b, -2, '2026-09-10 12:00:00', 'schwund');
+        $this->bewegung($a, -7, '2026-08-31 23:59:59', 'schwund'); // vor dem ersten Zeitraum
+        // Zeitraum 2: Beginn exklusiv
+        $this->bewegung($a, -2, '2026-09-20 10:00:00', 'schwund');
+        $this->bewegung($b, -1, '2026-10-01 18:00:00', 'schwund');
+        $this->bewegung($d, -3, '2026-09-15 10:00:00', 'schwund'); // ohne Position → aktueller Preis
+        $this->bewegung($a, -5, '2026-09-20 10:00:00', 'korrektur');
+        $this->bewegung($a, 24, '2026-09-20 10:00:00', 'lieferung');
+        $this->bewegung($kiosk, -7, '2026-09-20 10:00:00', 'schwund');
+        // laufender Zeitraum
+        $this->bewegung($a, -2, '2026-10-03 10:00:00', 'schwund');
+        $this->bewegung($d, -1, '2026-10-08 10:00:00', 'schwund');
+        $this->bewegung($a, -4, '2026-10-08 10:00:00', 'korrektur');
+        $this->bewegung($kiosk, -6, '2026-10-08 10:00:00', 'schwund');
+
+        return ['a' => $a, 'b' => $b, 'c' => $c, 'd' => $d, 'kiosk' => $kiosk, 'z1' => $z1, 'z2' => $z2];
+    }
+
+    public function test_schwund_zeitraeume_erfasst_unerklaert_ueberschuss_getrennt(): void
+    {
+        $s = $this->schwundSzenario();
+
+        $zeitraeume = $this->service()->schwundZeitraeume($this->bereich);
+
+        $this->assertSame([
+            [
+                'auszaehlung_id' => $s['z2'], 'von' => '2026-09-10 12:00:00', 'bis' => '2026-10-01 18:00:00', 'art' => 'regulaer',
+                'erfasst_menge' => 6, 'erfasst_cent' => 2 * 150 + 1 * 200 + 3 * 100,
+                'unerklaert_menge' => 4, 'unerklaert_cent' => 600,
+                'ueberschuss_menge' => 3, 'ueberschuss_cent' => 600,
+                'verkauft' => 60, 'quote' => 16.7, // (6 erfasst + 4 unerklärt) ÷ 60
+            ],
+            [
+                'auszaehlung_id' => $s['z1'], 'von' => '2026-09-01 00:00:00', 'bis' => '2026-09-10 12:00:00', 'art' => 'start',
+                'erfasst_menge' => 4, 'erfasst_cent' => 2 * 140 + 2 * 190,
+                'unerklaert_menge' => 0, 'unerklaert_cent' => 0,
+                'ueberschuss_menge' => 0, 'ueberschuss_cent' => 0,
+                'verkauft' => 15, 'quote' => 26.7, // 4 ÷ 15
+            ],
+        ], $zeitraeume);
+    }
+
+    public function test_schwund_zeitraeume_begrenzt_ohne_inklusiven_beginn(): void
+    {
+        $s = $this->schwundSzenario();
+
+        $nur = $this->service()->schwundZeitraeume($this->bereich, 1);
+
+        $this->assertCount(1, $nur);
+        $this->assertSame($s['z2'], $nur[0]['auszaehlung_id']);
+        // Schwund genau am vorherigen Stichtag gehört zum vorherigen Zeitraum, auch wenn dieser nicht geladen wird
+        $this->assertSame(6, $nur[0]['erfasst_menge']);
+        $this->assertSame([], $this->service()->schwundZeitraeume($this->bereichId('kiosk') + 1000));
+    }
+
+    public function test_schwund_artikel_top_nach_gesamtbetrag(): void
+    {
+        $s = $this->schwundSzenario();
+
+        $this->assertSame([
+            ['artikel_id' => $s['a'], 'name' => 'Helles', 'erfasst_menge' => 4, 'unerklaert_menge' => 4, 'gesamt_cent' => 280 + 300 + 600, 'quote' => 16.0],
+            ['artikel_id' => $s['b'], 'name' => 'Pils', 'erfasst_menge' => 3, 'unerklaert_menge' => 0, 'gesamt_cent' => 380 + 200, 'quote' => 12.0],
+            ['artikel_id' => $s['d'], 'name' => 'Wasser', 'erfasst_menge' => 3, 'unerklaert_menge' => 0, 'gesamt_cent' => 300, 'quote' => null],
+        ], $this->service()->schwundArtikel($this->bereich));
+
+        $this->assertSame([$s['a'], $s['b']], array_column($this->service()->schwundArtikel($this->bereich, 6, 2), 'artikel_id'));
+        // nur der letzte Zeitraum: Helles 300 + 600, Wasser 300, Pils 200
+        $this->assertSame([$s['a'], $s['d'], $s['b']], array_column($this->service()->schwundArtikel($this->bereich, 1), 'artikel_id'));
+    }
+
+    public function test_schwund_artikel_gleicher_betrag_nach_name(): void
+    {
+        $x  = $this->artikelAnlegen(['name' => 'Zwickl', 'preis_cent' => 100]);
+        $y  = $this->artikelAnlegen(['name' => 'Apfelschorle', 'preis_cent' => 100]);
+        $z1 = $this->auszaehlungAnlegen('2026-10-01 18:00:00', 'abgeschlossen', 'getraenke', ['zeitraum_von' => '2026-09-01 00:00:00']);
+        $this->position($z1, $x, -2, 100, 10);
+        $this->position($z1, $y, -2, 100, 10);
+
+        $this->assertSame([$y, $x], array_column($this->service()->schwundArtikel($this->bereich), 'artikel_id'));
+    }
+
+    public function test_schwund_artikel_verlauf(): void
+    {
+        $s = $this->schwundSzenario();
+
+        $this->assertSame([
+            ['von' => '2026-09-10 12:00:00', 'bis' => '2026-10-01 18:00:00', 'erfasst_menge' => 2, 'unerklaert_menge' => 4, 'gesamt_cent' => 900],
+            ['von' => '2026-09-01 00:00:00', 'bis' => '2026-09-10 12:00:00', 'erfasst_menge' => 2, 'unerklaert_menge' => 0, 'gesamt_cent' => 280],
+        ], $this->service()->schwundArtikelVerlauf($this->bereich, $s['a']));
+
+        $this->assertSame([], $this->service()->schwundArtikelVerlauf($this->bereich, $s['kiosk']));
+        $this->assertSame([], $this->service()->schwundArtikelVerlauf($this->bereich, 999999));
+    }
+
+    public function test_schwund_laufend_nur_nach_letztem_stichtag(): void
+    {
+        $this->schwundSzenario();
+
+        $this->assertSame(['menge' => 3, 'cent' => 2 * 150 + 1 * 100], $this->service()->schwundLaufend($this->bereich));
+    }
+
+    public function test_schwund_ohne_auszaehlung(): void
+    {
+        $a = $this->artikelAnlegen(['name' => 'Helles', 'preis_cent' => 150]);
+        $this->bewegung($a, -2, '2026-09-01 00:00:00', 'schwund'); // Inbetriebnahme inklusiv
+        $this->bewegung($a, -5, '2026-08-31 23:59:59', 'schwund');
+        $this->bewegung($a, -1, '2026-10-09 10:00:00', 'schwund');
+
+        $this->assertSame([], $this->service()->schwundZeitraeume($this->bereich));
+        $this->assertSame([], $this->service()->schwundArtikel($this->bereich));
+        $this->assertSame([], $this->service()->schwundArtikelVerlauf($this->bereich, $a));
+        $this->assertSame(['menge' => 3, 'cent' => 450], $this->service()->schwundLaufend($this->bereich));
+        $this->assertSame(['menge' => 0, 'cent' => 0], $this->service()->schwundLaufend($this->bereichId('kiosk')));
+    }
 }
