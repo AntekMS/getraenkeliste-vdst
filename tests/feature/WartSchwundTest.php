@@ -83,6 +83,91 @@ final class WartSchwundTest extends DbTestCase
         return [$a, $b];
     }
 
+    /** Text einer Kachel: von ihrem Label bis zum nächsten Label bzw. Ende. */
+    private function kachel(string $kennzahlen, string $label): string
+    {
+        $this->assertSame(1, preg_match('/stat-tile-label">' . preg_quote($label, '/') . '<\/div>(.*?)(?=stat-tile-label|\z)/s', $kennzahlen, $treffer), "Kachel {$label} fehlt");
+
+        return $treffer[1];
+    }
+
+    /** @return array<string, mixed> */
+    private function diagrammDaten(TestResponse $antwort): array
+    {
+        $this->assertSame(1, preg_match('/data-diagramm=(["\'])(.*?)\1/s', $antwort->getBody(), $treffer));
+
+        return json_decode(html_entity_decode($treffer[2], ENT_QUOTES | ENT_HTML5), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    public function test_kacheln_zeigen_label_und_wert_zusammen(): void
+    {
+        $this->zweiZeitraeume();
+
+        $kennzahlen = $this->abschnitt($this->seite(), 'kennzahlen');
+
+        $erfasst = $this->kachel($kennzahlen, 'Erfasster Schwund');
+        $this->assertStringContainsString('5,00 €', $erfasst);
+        $this->assertStringContainsString('3 Stück', $erfasst);
+        $unerklaert = $this->kachel($kennzahlen, 'Unerklärte Differenz');
+        $this->assertStringContainsString('6,00 €', $unerklaert);
+        $this->assertStringContainsString('Überschuss: 6,00 € (3 Stück)', $unerklaert);
+        $quote = $this->kachel($kennzahlen, 'Schwundquote');
+        $this->assertStringContainsString('17,5 %', $quote);
+        $this->assertStringContainsString('schlechter: +12,5 Prozentpunkte', $quote);
+    }
+
+    public function test_verlauf_reihenfolge_tabelle_neueste_zuerst_diagramm_aelteste_zuerst(): void
+    {
+        $this->zweiZeitraeume();
+
+        $seite   = $this->seite();
+        $tabelle = $this->abschnitt($seite, 'verlauf');
+        $tabelle = substr($tabelle, (int) strpos($tabelle, '<table')); // ohne das Diagramm-JSON davor
+
+        $this->assertLessThan(strpos($tabelle, '01.09.2026 – 10.09.2026'), strpos($tabelle, '10.09.2026 – 01.10.2026'));
+
+        $daten = $this->diagrammDaten($seite);
+        $this->assertSame(['01.09.2026 – 10.09.2026', '10.09.2026 – 01.10.2026'], $daten['labels']);
+    }
+
+    public function test_start_zeitraum_im_diagramm_mit_zusatz(): void
+    {
+        $a  = $this->artikelAnlegen(['name' => 'Helles', 'preis_cent' => 150]);
+        $z0 = $this->auszaehlungAnlegen('2026-09-10 12:00:00', 'abgeschlossen', 'getraenke', ['art' => 'start', 'zeitraum_von' => '2026-09-01 00:00:00']);
+        $this->position($z0, $a, -3, 150, 10);
+
+        $daten = $this->diagrammDaten($this->seite());
+
+        $this->assertSame(['01.09.2026 – 10.09.2026 (Start)'], $daten['labels']);
+    }
+
+    public function test_unveraenderte_quote_zeigt_unveraendert(): void
+    {
+        $a  = $this->artikelAnlegen(['name' => 'Helles', 'preis_cent' => 150]);
+        $z0 = $this->auszaehlungAnlegen('2026-09-10 12:00:00', 'abgeschlossen', 'getraenke', ['zeitraum_von' => '2026-09-01 00:00:00']);
+        $this->position($z0, $a, -2, 150, 40);
+        $z1 = $this->auszaehlungAnlegen('2026-10-01 18:00:00', 'abgeschlossen', 'getraenke', ['zeitraum_von' => '2026-09-10 12:00:00']);
+        $this->position($z1, $a, -2, 150, 40);
+
+        $quote = $this->kachel($this->abschnitt($this->seite(), 'kennzahlen'), 'Schwundquote');
+
+        $this->assertStringContainsString('unverändert zum Zeitraum davor', $quote);
+        $this->assertStringNotContainsString('bi-arrow', $quote);
+    }
+
+    public function test_top_artikel_auf_zehn_begrenzt(): void
+    {
+        $z0 = $this->auszaehlungAnlegen('2026-09-10 12:00:00', 'abgeschlossen', 'getraenke', ['zeitraum_von' => '2026-09-01 00:00:00']);
+
+        for ($i = 1; $i <= 12; $i++) {
+            $this->position($z0, $this->artikelAnlegen(['name' => 'Sorte ' . $i, 'preis_cent' => 100 + $i]), -1, 100 + $i, 10);
+        }
+
+        $top = $this->abschnitt($this->seite(), 'top-artikel');
+
+        $this->assertSame(10, substr_count($top, 'schwund?artikel='));
+    }
+
     public function test_leerer_zustand_mit_hinweis_und_laufender_zeile(): void
     {
         $seite = $this->seite();
@@ -208,8 +293,8 @@ final class WartSchwundTest extends DbTestCase
 
         $body = $this->seite()->getBody();
 
-        $this->assertStringContainsString('chart.js@4', $body);
-        $this->assertStringContainsString('js/statistik.js?v=1', $body);
+        $this->assertStringContainsString('chart.js@4.5.1/dist/chart.umd.min.js', $body);
+        $this->assertStringContainsString('js/statistik.js?v=2', $body);
         $this->assertSame(1, preg_match('/data-diagramm=(["\'])(.*?)\1/s', $body, $treffer));
         $daten = json_decode(html_entity_decode($treffer[2], ENT_QUOTES | ENT_HTML5), true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame('saeulen-gestapelt', $daten['typ']);

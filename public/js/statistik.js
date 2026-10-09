@@ -3,7 +3,10 @@
 (function () {
     'use strict';
 
-    var TOKENS = ['--vdst-rot', '--grau-700', '--status-positiv', '--status-wartend', '--grau-500', '--vdst-schwarz'];
+    var TOKENS = ['--vdst-rot', '--grau-700', '--status-positiv', '--status-wartend', '--grau-500', '--grau-900'];
+    // Ab dem zweiten Farbzyklus unterscheiden sich Linien zusätzlich durch Punktform und Strichelung
+    var PUNKTE = ['circle', 'rect', 'triangle', 'rectRot'];
+    var STRICHE = [[], [6, 4], [2, 3]];
     var diagramme = [];
 
     function token(name, ersatz) {
@@ -38,7 +41,7 @@
                     stacked: istEuro,
                     beginAtZero: true,
                     title: { display: true, text: istEuro ? 'Euro' : 'Stück', color: text },
-                    ticks: { color: text, callback: function (wert) { return format(wert); } },
+                    ticks: { color: text, precision: istEuro ? undefined : 0, callback: function (wert) { return format(wert); } },
                     grid: { color: gitter }
                 }
             }
@@ -59,7 +62,11 @@
                 datasets: daten.reihen.map(function (reihe, i) {
                     var f = farbe(i);
                     return linie
-                        ? { label: reihe.name, data: reihe.werte, borderColor: f, backgroundColor: f, tension: 0.2, pointRadius: 3 }
+                        ? {
+                            label: reihe.name, data: reihe.werte, borderColor: f, backgroundColor: f, tension: 0.2, pointRadius: 3,
+                            pointStyle: PUNKTE[Math.floor(i / TOKENS.length) % PUNKTE.length],
+                            borderDash: STRICHE[Math.floor(i / TOKENS.length) % STRICHE.length]
+                        }
                         : { label: reihe.name, data: reihe.werte, backgroundColor: f };
                 })
             },
@@ -93,6 +100,10 @@
                 rahmen.hidden = false;
             }
         });
+
+        if (diagramme.length === 0) {
+            return;
+        }
 
         // Theme-Wechsel (app.js setzt data-bs-theme): Farben neu lesen und neu zeichnen
         new MutationObserver(function () {

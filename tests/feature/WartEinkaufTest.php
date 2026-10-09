@@ -327,8 +327,8 @@ final class WartEinkaufTest extends DbTestCase
     public function test_chartjs_und_statistik_js_nur_auf_den_statistikseiten(): void
     {
         $body = $this->seite()->getBody();
-        $this->assertStringContainsString('chart.js@4', $body);
-        $this->assertStringContainsString('js/statistik.js?v=1', $body);
+        $this->assertStringContainsString('chart.js@4.5.1/dist/chart.umd.min.js', $body);
+        $this->assertStringContainsString('js/statistik.js?v=2', $body);
 
         $buchen = $this->alsAngemeldet($this->wart)->get('buchen')->getBody();
         $this->assertStringNotContainsString('chart.js', $buchen);

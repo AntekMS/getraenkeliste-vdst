@@ -348,20 +348,38 @@ final class StatistikServiceTest extends DbTestCase
         $this->assertCount(3, $historie);
         $this->assertSame('2026-10-05 10:00:00', $historie[0]['erfolgt_at']);
         $this->assertSame('Wart Willi', $historie[0]['erfasst_von']);
-        $this->assertSame([['artikel' => 'Helles', 'menge' => 6, 'einkaufspreis_cent' => 82]], $historie[0]['zeilen']);
+        $this->assertSame([['artikel' => 'Helles (0,5 l)', 'menge' => 6, 'einkaufspreis_cent' => 82]], $historie[0]['zeilen']);
 
         $gruppen = array_slice($historie, 1);
         usort($gruppen, static fn (array $x, array $y): int => strcmp($x['erfasst_von'], $y['erfasst_von']));
         $this->assertSame('2026-10-02 10:00:00', $gruppen[0]['erfolgt_at']);
         $this->assertSame('Anna Andere', $gruppen[0]['erfasst_von']);
-        $this->assertSame([['artikel' => 'Helles', 'menge' => 12, 'einkaufspreis_cent' => 81]], $gruppen[0]['zeilen']);
+        $this->assertSame([['artikel' => 'Helles (0,5 l)', 'menge' => 12, 'einkaufspreis_cent' => 81]], $gruppen[0]['zeilen']);
         $this->assertSame('Wart Willi', $gruppen[1]['erfasst_von']);
         $this->assertSame([
-            ['artikel' => 'Helles', 'menge' => 24, 'einkaufspreis_cent' => 80],
-            ['artikel' => 'Pils', 'menge' => 48, 'einkaufspreis_cent' => null],
+            ['artikel' => 'Helles (0,5 l)', 'menge' => 24, 'einkaufspreis_cent' => 80],
+            ['artikel' => 'Pils (0,5 l)', 'menge' => 48, 'einkaufspreis_cent' => null],
         ], $gruppen[1]['zeilen']);
 
         $this->assertSame([], (new StatistikService())->lieferhistorie($this->bereichId('kiosk') + 1000, 20));
+    }
+
+    public function test_lieferhistorie_ohne_einheit_nur_mit_namen(): void
+    {
+        $a = $this->artikelAnlegen(['name' => 'Wasser', 'einheit' => '']);
+        $this->bewegung($a, 5, '2026-10-02 10:00:00', 'lieferung', 10);
+
+        $this->assertSame('Wasser', $this->service()->lieferhistorie($this->bereich, 5)[0]['zeilen'][0]['artikel']);
+    }
+
+    public function test_artikel_name_mit_einheit_und_bereichsgrenze(): void
+    {
+        $a     = $this->artikelAnlegen(['name' => 'Helles']);
+        $kiosk = $this->artikelAnlegen(['kategorie_id' => $this->kioskKategorie(), 'name' => 'Riegel']);
+
+        $this->assertSame('Helles (0,5 l)', $this->service()->artikelName($this->bereich, $a));
+        $this->assertSame('', $this->service()->artikelName($this->bereich, $kiosk));
+        $this->assertSame('', $this->service()->artikelName($this->bereich, 999999));
     }
 
     private function position(int $auszaehlung, int $artikel, int $differenz, int $preis, int $verkauft, int $start = 0): void

@@ -27,7 +27,7 @@ class SchwundController extends BaseController
         $zeitraeume = $statistik->schwundZeitraeume($bereichId, self::ZEITRAEUME);
 
         $artikelText = $this->text($this->request->getGet('artikel'));
-        $artikelId   = preg_match('/^[1-9][0-9]{0,9}$/', $artikelText) === 1 ? (int) $artikelText : 0;
+        $artikelId   = preg_match('/^[1-9][0-9]{0,9}$/D', $artikelText) === 1 ? (int) $artikelText : 0;
         $top         = $statistik->schwundArtikel($bereichId, self::ZEITRAEUME, 10);
         $verlauf     = [];
         $gewaehlt    = null;
@@ -48,7 +48,7 @@ class SchwundController extends BaseController
             'top'        => $top,
             'gewaehlt'   => $gewaehlt,
             'verlauf'    => $verlauf,
-            'artikelName' => $gewaehlt === null ? '' : $this->artikelName($top, $gewaehlt),
+            'artikelName' => $gewaehlt === null ? '' : $statistik->artikelName($bereichId, $gewaehlt),
             'laufend'    => $statistik->schwundLaufend($bereichId),
         ]);
     }
@@ -68,7 +68,7 @@ class SchwundController extends BaseController
         $delta = null;
 
         if ($jetzt['art'] !== 'start' && $jetzt['quote'] !== null && isset($zeitraeume[1]) && $zeitraeume[1]['quote'] !== null) {
-            $delta = round($jetzt['quote'] - $zeitraeume[1]['quote'], 1);
+            $delta = round(round($jetzt['quote'], 1) - round($zeitraeume[1]['quote'], 1), 1);
         }
 
         return ['zeitraum' => $jetzt, 'start' => $jetzt['art'] === 'start', 'delta' => $delta];
@@ -86,7 +86,7 @@ class SchwundController extends BaseController
 
         return json_encode([
             'typ'    => 'saeulen-gestapelt',
-            'labels' => array_map(fn (array $z): string => $this->bereichText($z), $aufsteigend),
+            'labels' => array_map(fn (array $z): string => $this->bereichText($z) . ($z['art'] === 'start' ? ' (Start)' : ''), $aufsteigend),
             'reihen' => [
                 ['name' => 'Erfasst', 'werte' => array_map(static fn (array $z): float => $euro((int) $z['erfasst_cent']), $aufsteigend)],
                 ['name' => 'Unerklärt', 'werte' => array_map(static fn (array $z): float => $euro((int) $z['unerklaert_cent']), $aufsteigend)],
@@ -100,21 +100,5 @@ class SchwundController extends BaseController
     private function bereichText(array $zeitraum): string
     {
         return (new DateTimeImmutable($zeitraum['von']))->format('d.m.Y') . ' – ' . (new DateTimeImmutable($zeitraum['bis']))->format('d.m.Y');
-    }
-
-    /**
-     * @param list<array<string, mixed>> $top
-     */
-    private function artikelName(array $top, int $artikelId): string
-    {
-        foreach ($top as $zeile) {
-            if ($zeile['artikel_id'] === $artikelId) {
-                return (string) $zeile['name'];
-            }
-        }
-
-        $zeile = db_connect()->table('artikel')->select('name')->where('id', $artikelId)->get()->getRowArray();
-
-        return $zeile === null ? '' : (string) $zeile['name'];
     }
 }

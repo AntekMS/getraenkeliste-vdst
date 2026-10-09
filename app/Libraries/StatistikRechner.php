@@ -27,7 +27,8 @@ final class StatistikRechner
 
     public static function tagesverbrauch(int $verkauft, int $grundlageTage): float
     {
-        return $verkauft / max(1, $grundlageTage);
+        // Negative Summen (Korrektur-Buchungen) ergeben nie einen negativen Verbrauch.
+        return max(0, $verkauft) / max(1, $grundlageTage);
     }
 
     public static function reichweiteTage(int $bestand, float $tagesverbrauch): ?int
@@ -92,18 +93,26 @@ final class StatistikRechner
     }
 
     /**
+     * Montag 00:00 der ältesten von `$anzahl` Wochen (inklusive der laufenden); Datumsarithmetik per `modify` (Sommerzeit).
+     */
+    public static function wochenBeginn(DateTimeImmutable $jetzt, int $anzahl): DateTimeImmutable
+    {
+        return $jetzt->modify('monday this week')->setTime(0, 0)->modify('-' . (max(1, $anzahl) - 1) . ' weeks');
+    }
+
+    /**
      * @return list<string> älteste zuerst, inklusive der laufenden Woche
      */
     public static function letzteWochen(DateTimeImmutable $jetzt, int $anzahl): array
     {
-        $montag = $jetzt->modify('monday this week')->setTime(12, 0);
+        $montag = self::wochenBeginn($jetzt, $anzahl)->setTime(12, 0);
         $wochen = [];
 
         for ($i = 0; $i < $anzahl; $i++) {
             $wochen[] = self::isoWoche($montag);
-            $montag   = $montag->modify('-1 week');
+            $montag   = $montag->modify('+1 week');
         }
 
-        return array_reverse($wochen);
+        return $wochen;
     }
 }

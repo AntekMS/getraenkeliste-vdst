@@ -23,6 +23,12 @@ class StatistikService
     private const MAX_WOCHEN   = 104;
 
     /** Schwund-Werte eines Artikels (oder Zeitraums) vor der Quote. */
+    /** @var array<string, array<string, mixed>> Schwund-Rohwerte je (Bereich, Anzahl) für die Dauer der Instanz (ein Request) */
+    private array $schwundCache = [];
+
+    /** @var array<string, int> */
+    private array $sammelkonten = [];
+
     private const SCHWUND_LEER = [
         'erfasst_menge' => 0, 'erfasst_cent' => 0, 'unerklaert_menge' => 0, 'unerklaert_cent' => 0,
         'ueberschuss_menge' => 0, 'ueberschuss_cent' => 0, 'verkauft' => 0,
@@ -75,9 +81,8 @@ class StatistikService
      */
     public function anteile(int $bereichId, DateTimeImmutable $von, bool $vonInklusiv, DateTimeImmutable $bis): array
     {
-        $personen = new PersonModel();
-        $couleur  = $personen->sammelkontoId('Couleur');
-        $bund     = $personen->sammelkontoId('Bund');
+        $couleur   = $this->sammelkontoId('Couleur');
+        $bund      = $this->sammelkontoId('Bund');
         $vergleich = $vonInklusiv ? '>=' : '>';
 
         $zeilen = db_connect()->table('buchungen b')
@@ -116,7 +121,7 @@ class StatistikService
         $wochen = max(1, min(self::MAX_WOCHEN, $wochen));
         $jetzt  = service('uhr')->jetzt();
         $liste  = StatistikRechner::letzteWochen($jetzt, $wochen);
-        $ab     = $jetzt->modify('monday this week')->setTime(0, 0)->modify('-' . ($wochen - 1) . ' weeks');
+        $ab     = StatistikRechner::wochenBeginn($jetzt, $wochen);
 
         [$ansicht, $reihen, $schluessel] = $this->reihen($bereichId, $ansicht);
 
@@ -183,7 +188,7 @@ class StatistikService
             if ($z['artikel_id'] !== null) {
                 $kategorien[$id]['artikel'][] = [
                     'id'   => (int) $z['artikel_id'],
-                    'name' => $z['einheit'] === '' ? (string) $z['name'] : "{$z['name']} ({$z['einheit']})",
+                    'name' => self::anzeigename((string) $z['name'], (string) $z['einheit']),
                 ];
             }
         }
@@ -217,7 +222,7 @@ class StatistikService
         }
 
         $zeilen = $basis()
-            ->select('m.erfolgt_at, m.person_id, m.menge, m.einkaufspreis_cent, a.name, p.anzeigename')
+            ->select('m.erfolgt_at, m.person_id, m.menge, m.einkaufspreis_cent, a.name, a.einheit, p.anzeigename')
             ->join('personen p', 'p.id = m.person_id')
             ->where('m.erfolgt_at >=', end($gruppen)['erfolgt_at'])
             ->orderBy('m.id')
@@ -238,7 +243,7 @@ class StatistikService
 
             $ergebnis[$schluessel]['erfasst_von'] = (string) $z['anzeigename'];
             $ergebnis[$schluessel]['zeilen'][]    = [
-                'artikel'            => (string) $z['name'],
+                'artikel'            => self::anzeigename((string) $z['name'], (string) $z['einheit']),
                 'menge'              => (int) $z['menge'],
                 'einkaufspreis_cent' => $z['einkaufspreis_cent'] === null ? null : (int) $z['einkaufspreis_cent'],
             ];
@@ -382,6 +387,16 @@ class StatistikService
      */
     private function schwundDaten(int $bereichId, int $anzahl, ?int $nurArtikel = null): array
     {
+        $schluessel = "{$bereichId}|{$anzahl}|" . ($nurArtikel ?? '*');
+
+        return $this->schwundCache[$schluessel] ??= $this->ladeSchwundDaten($bereichId, $anzahl, $nurArtikel);
+    }
+
+    /**
+     * @return array{zeitraeume: list<array{auszaehlung_id: int, von: string, bis: string, art: string}>, werte: array<int, array<int, array<string, int>>>, verkauft: list<int>, namen: array<int, string>}
+     */
+    private function ladeSchwundDaten(int $bereichId, int $anzahl, ?int $nurArtikel): array
+    {
         $auszaehlungen = (new AuszaehlungModel())->letzteMitZeitraum($bereichId, $anzahl);
 
         if ($auszaehlungen === []) {
@@ -499,8 +514,31 @@ class StatistikService
             'zeitraeume' => $zeitraeume,
             'werte'      => $werte,
             'verkauft'   => $verkauft,
-            'namen'      => array_map(static fn (array $a): string => $a['einheit'] === '' ? (string) $a['name'] : "{$a['name']} ({$a['einheit']})", $artikel),
+            'namen'      => array_map(static fn (array $a): string => self::anzeigename((string) $a['name'], (string) $a['einheit']), $artikel),
         ];
+    }
+
+    /**
+     * Anzeigename „Name (Einheit)“ eines Artikels des Bereichs; fremder oder unbekannter Artikel → ''.
+     */
+    public function artikelName(int $bereichId, int $artikelId): string
+    {
+        $zeile = db_connect()->table('artikel a')->select('a.name, a.einheit')
+            ->join('kategorien k', 'k.id = a.kategorie_id')
+            ->where('a.id', $artikelId)->where('k.bereich_id', $bereichId)
+            ->get()->getRowArray();
+
+        return $zeile === null ? '' : self::anzeigename((string) $zeile['name'], (string) $zeile['einheit']);
+    }
+
+    private static function anzeigename(string $name, string $einheit): string
+    {
+        return $einheit === '' ? $name : "{$name} ({$einheit})";
+    }
+
+    private function sammelkontoId(string $name): int
+    {
+        return $this->sammelkonten[$name] ??= (new PersonModel())->sammelkontoId($name);
     }
 
     /**
@@ -531,7 +569,7 @@ class StatistikService
 
                 foreach ($artikel as $a) {
                     $reihen[(int) $a['id']] = [
-                        'name'           => $a['einheit'] === '' ? (string) $a['name'] : "{$a['name']} ({$a['einheit']})",
+                        'name'           => self::anzeigename((string) $a['name'], (string) $a['einheit']),
                         'nur_mit_werten' => $treffer[1] === 'kategorie' && $a['archiviert_at'] !== null,
                     ];
                 }

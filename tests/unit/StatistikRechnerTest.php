@@ -33,6 +33,12 @@ final class StatistikRechnerTest extends CIUnitTestCase
         $this->assertSame(2.5, StatistikRechner::tagesverbrauch(70, 28));
     }
 
+    public function test_tagesverbrauch_nie_negativ(): void
+    {
+        $this->assertSame(0.0, StatistikRechner::tagesverbrauch(-14, 28));
+        $this->assertNull(StatistikRechner::vorschlag(StatistikRechner::tagesverbrauch(-14, 28), 30, 0, 5, null));
+    }
+
     public function test_reichweite(): void
     {
         $this->assertSame(14, StatistikRechner::reichweiteTage(29, 2.0));

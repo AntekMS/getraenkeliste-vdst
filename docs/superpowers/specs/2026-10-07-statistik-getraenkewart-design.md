@@ -23,7 +23,7 @@ Ersetzt die Bestandsseite aus Stufe 2. `GET wart/<bereich>/bestand` leitet dauer
 ### 2.1 Bestellliste für die nächste Lieferung (oben)
 - Nur Artikel mit `bestand_fuehren = 1`, nicht archiviert, mit einem Vorschlag > 0; gruppiert nach Kategorie (Sortierung wie überall).
 - Spalten: Artikel, Bestand, reicht noch (Tage), Vorschlag, letzter Einkaufspreis je Stück.
-- **Tagesverbrauch** = verkaufte Menge der letzten 28 Tage ÷ Grundlage-Tage. Verkauft = Summe `menge` nicht stornierter Buchungen inkl. `quelle = korrektur`. Grundlage-Tage = 28, aber höchstens die Tage seit `inbetriebnahme_at` (mindestens 1); ist sie < 28, erscheint der Hinweis „Grundlage erst X Tage“.
+- **Tagesverbrauch** = verkaufte Menge der letzten 28 Tage ÷ Grundlage-Tage. Verkauft = Summe `menge` nicht stornierter, **bestandswirksamer** Buchungen (Korrekturen nur, wenn der Wart sie als bestandswirksam markiert hat; S3-R8). Grundlage-Tage = 28, aber höchstens die Tage seit `inbetriebnahme_at` (mindestens 1); ist sie < 28, erscheint der Hinweis „Grundlage erst X Tage“.
 - **Vorschlag** = ⌈Tagesverbrauch × `reichweite_tage` + `mindestbestand` − Bestand⌉. Bei ≤ 0 kein Vorschlag. Mit `gebinde_groesse` wird auf volle Kisten aufgerundet und als „N Kisten (= M Stück)“ angezeigt, sonst in Stück.
 - **Letzter Einkaufspreis** = `einkaufspreis_cent` der jüngsten Lieferung mit Preis, sonst „—“.
 - Button „Bestellliste drucken“ (vorhandenes `data-print`), druckt nur diesen Block (Druck-CSS).
@@ -89,4 +89,4 @@ Grundlage sind **abgeschlossene Auszählungen**; nur dort steht die Differenz fe
 
 - **Unit (`StatistikRechner`):** Tagesverbrauch mit < 28 Grundlage-Tagen; Reichweite bei 0 Verbrauch / Bestand ≤ 0; Vorschlag mit und ohne Kistengröße, Aufrunden, ≤ 0 → kein Vorschlag; Anteile bei 0 Gesamt; Quote bei 0 verkauft; ISO-Woche über Jahreswechsel.
 - **DB (`StatistikService`):** Verbrauch 28 Tage und je Woche inkl. stornierter (zählt nicht) und negativer Korrekturbuchungen; Anteile Couleur/Bund/Mitglieder; Lieferhistorie-Gruppierung; Schwund je Zeitraum (erfasst, unerklärt, Überschuss getrennt, Start = 0); **Gleichheit:** Bestand auf „Einkauf“ = `bestand()->einzeln`.
-- **Feature:** beide Seiten rendern (genau eine `.btn-vdst`), Bestellliste enthält den erwarteten Vorschlag, `ansicht`/`artikel`-Parameter inkl. Arrays/ungültiger Werte ohne 500, Umleitung `bestand` → `einkauf` (301), Mitglied 403, Kiosk 404, `ZugriffsschutzTest` erweitert, leerer Zustand „Schwund“.
+- **Feature:** beide Seiten rendern (Einkauf genau eine `.btn-vdst`, Schwund keine; S3-R7), Bestellliste enthält den erwarteten Vorschlag, `ansicht`/`artikel`-Parameter inkl. Arrays/ungültiger Werte ohne 500, Umleitung `bestand` → `einkauf` (301), Mitglied 403, Kiosk 404, `ZugriffsschutzTest` erweitert, leerer Zustand „Schwund“.
