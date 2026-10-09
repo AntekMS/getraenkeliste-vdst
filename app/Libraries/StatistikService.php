@@ -217,7 +217,8 @@ class StatistikService
     /**
      * Schwund je abgeschlossenem Zeitraum (Statistik-Spec 3.1/3.2), neueste zuerst. Erfasst = Schwund-Bewegungen im Zeitraum
      * × Preis der Position dieser Auszählung (ohne Position: aktueller Preis); unerklärt/Überschuss = gespeicherte Differenzen
-     * der Positionen ohne `start` (Start-Auszählung: beides 0); verkauft = Σ `verkauft` der Positionen.
+     * der Positionen ohne `start`; verkauft = Σ `verkauft` der Positionen. Start-Auszählung (`art = start`): alle Schwundwerte 0,
+     * Quote null (S3-R5), `verkauft` bleibt die Summe der Positionen.
      *
      * @return list<array{auszaehlung_id: int, von: string, bis: string, art: string, erfasst_menge: int, erfasst_cent: int, unerklaert_menge: int, unerklaert_cent: int, ueberschuss_menge: int, ueberschuss_cent: int, verkauft: int, quote: ?float}>
      */
@@ -235,8 +236,11 @@ class StatistikService
                 }
             }
 
-            $liste[] = $zeitraum + $summe
-                + ['quote' => StatistikRechner::quote($summe['erfasst_menge'] + $summe['unerklaert_menge'], $summe['verkauft'])];
+            $summe['verkauft'] = $daten['verkauft'][$i];
+            $quote             = $zeitraum['art'] === 'start' ? null
+                : StatistikRechner::quote($summe['erfasst_menge'] + $summe['unerklaert_menge'], $summe['verkauft']);
+
+            $liste[] = $zeitraum + $summe + ['quote' => $quote];
         }
 
         return $liste;
@@ -338,16 +342,17 @@ class StatistikService
 
     /**
      * Schwund-Rohwerte der letzten `$anzahl` abgeschlossenen Zeiträume mit festen vier Abfragen (Auszählungen, Positionen,
-     * Bewegungen, Artikel). Zeitraum-Regel aus `AuszaehlungModel::zeitraum` (wie der Excel-Export).
+     * Bewegungen, Artikel). Zeitraum-Regel aus `AuszaehlungModel::zeitraum` (wie der Excel-Export). Zeiträume einer
+     * Start-Auszählung tragen nichts zu `werte` bei (weder Schwund noch verkauft); `verkauft` je Zeitraum steht getrennt.
      *
-     * @return array{zeitraeume: list<array{auszaehlung_id: int, von: string, bis: string, art: string}>, werte: array<int, array<int, array<string, int>>>, namen: array<int, string>}
+     * @return array{zeitraeume: list<array{auszaehlung_id: int, von: string, bis: string, art: string}>, werte: array<int, array<int, array<string, int>>>, verkauft: list<int>, namen: array<int, string>}
      */
     private function schwundDaten(int $bereichId, int $anzahl, ?int $nurArtikel = null): array
     {
         $auszaehlungen = (new AuszaehlungModel())->letzteMitZeitraum($bereichId, $anzahl);
 
         if ($auszaehlungen === []) {
-            return ['zeitraeume' => [], 'werte' => [], 'namen' => []];
+            return ['zeitraeume' => [], 'werte' => [], 'verkauft' => [], 'namen' => []];
         }
 
         $db         = db_connect();
@@ -366,8 +371,9 @@ class StatistikService
             $fenster[] = [$zeitraeume[$i]['von'], $zeitraeume[$i]['bis'], $a['zeitraum']['von_inklusiv']];
         }
 
-        $werte  = [];
-        $preise = [];
+        $werte    = [];
+        $preise   = [];
+        $verkauft = array_fill(0, count($zeitraeume), 0);
 
         $positionen = $db->table('auszaehlung_positionen')
             ->select('auszaehlung_id, artikel_id, verkauft, differenz, start, preis_cent')
@@ -378,12 +384,18 @@ class StatistikService
         }
 
         foreach ($positionen->get()->getResultArray() as $p) {
-            $i         = $index[(int) $p['auszaehlung_id']];
+            $i = $index[(int) $p['auszaehlung_id']];
+            $verkauft[$i] += (int) $p['verkauft'];
+
+            if ($zeitraeume[$i]['art'] === 'start') {
+                continue;
+            }
+
             $artikelId = (int) $p['artikel_id'];
             $differenz = (int) $p['differenz'];
             $preis     = (int) $p['preis_cent'];
             $w         = $werte[$artikelId][$i] ?? self::SCHWUND_LEER;
-            $zaehlt    = (int) $p['start'] === 0 && $zeitraeume[$i]['art'] !== 'start';
+            $zaehlt    = (int) $p['start'] === 0;
 
             $preise[$artikelId][$i] = $preis;
             $w['verkauft'] += (int) $p['verkauft'];
@@ -420,6 +432,10 @@ class StatistikService
 
             foreach ($fenster as $i => [$von, $bis, $inklusiv]) {
                 if (($zeit > $von || ($inklusiv && $zeit === $von)) && $zeit <= $bis) {
+                    if ($zeitraeume[$i]['art'] === 'start') {
+                        break;
+                    }
+
                     $erfasst[(int) $m['artikel_id']][$i] = ($erfasst[(int) $m['artikel_id']][$i] ?? 0) + (int) $m['menge'];
                     break;
                 }
@@ -430,7 +446,7 @@ class StatistikService
         $artikel = [];
 
         if ($ids !== []) {
-            foreach ($db->table('artikel')->select('id, name, preis_cent')->whereIn('id', $ids)->get()->getResultArray() as $a) {
+            foreach ($db->table('artikel')->select('id, name, einheit, preis_cent')->whereIn('id', $ids)->get()->getResultArray() as $a) {
                 $artikel[(int) $a['id']] = $a;
             }
         }
@@ -449,7 +465,8 @@ class StatistikService
         return [
             'zeitraeume' => $zeitraeume,
             'werte'      => $werte,
-            'namen'      => array_map(static fn (array $a): string => (string) $a['name'], $artikel),
+            'verkauft'   => $verkauft,
+            'namen'      => array_map(static fn (array $a): string => $a['einheit'] === '' ? (string) $a['name'] : "{$a['name']} ({$a['einheit']})", $artikel),
         ];
     }
 

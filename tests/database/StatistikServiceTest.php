@@ -7,6 +7,7 @@ namespace Tests\Database;
 use App\Libraries\StatistikRechner;
 use App\Libraries\StatistikService;
 use App\Models\ArtikelModel;
+use App\Models\AuszaehlungModel;
 use App\Models\KategorieModel;
 use App\Models\PersonModel;
 use DateTimeImmutable;
@@ -371,8 +372,9 @@ final class StatistikServiceTest extends DbTestCase
         $kiosk = $this->artikelAnlegen(['kategorie_id' => $this->kioskKategorie(), 'name' => 'Riegel', 'preis_cent' => 90]);
 
         $z1 = $this->auszaehlungAnlegen('2026-09-10 12:00:00', 'abgeschlossen', 'getraenke', ['art' => 'start', 'zeitraum_von' => '2026-09-01 00:00:00']);
-        $this->position($z1, $a, -3, 140, 10, 1);
-        $this->position($z1, $b, 2, 190, 5, 1);
+        // Start-Auszählung: Positionen mit start = 0 und Fehlmenge/Überschuss zählen trotzdem nicht (S3-R5)
+        $this->position($z1, $a, -3, 140, 10);
+        $this->position($z1, $b, 2, 190, 5);
 
         $z2 = $this->auszaehlungAnlegen('2026-10-01 18:00:00', 'abgeschlossen', 'getraenke', ['zeitraum_von' => '2026-09-10 12:00:00']);
         $this->position($z2, $a, -4, 150, 40);
@@ -385,7 +387,7 @@ final class StatistikServiceTest extends DbTestCase
         $kioskZ = $this->auszaehlungAnlegen('2026-09-20 12:00:00', 'abgeschlossen', 'kiosk', ['zeitraum_von' => '2026-09-01 00:00:00']);
         $this->position($kioskZ, $kiosk, -9, 90, 3);
 
-        // Zeitraum 1: Beginn inklusiv (erste Auszählung), Stichtag inklusiv
+        // Zeitraum 1 (Start): Schwund zählt nicht; Stichtag inklusiv → gehört nicht zu Zeitraum 2
         $this->bewegung($a, -1, '2026-09-01 00:00:00', 'schwund');
         $this->bewegung($a, -1, '2026-09-10 12:00:00', 'schwund');
         $this->bewegung($b, -2, '2026-09-10 12:00:00', 'schwund');
@@ -422,12 +424,37 @@ final class StatistikServiceTest extends DbTestCase
             ],
             [
                 'auszaehlung_id' => $s['z1'], 'von' => '2026-09-01 00:00:00', 'bis' => '2026-09-10 12:00:00', 'art' => 'start',
-                'erfasst_menge' => 4, 'erfasst_cent' => 2 * 140 + 2 * 190,
+                'erfasst_menge' => 0, 'erfasst_cent' => 0,
                 'unerklaert_menge' => 0, 'unerklaert_cent' => 0,
                 'ueberschuss_menge' => 0, 'ueberschuss_cent' => 0,
-                'verkauft' => 15, 'quote' => 26.7, // 4 ÷ 15
+                'verkauft' => 15, 'quote' => null, // Start-Auszählung: alles 0, keine Quote
             ],
         ], $zeitraeume);
+    }
+
+    public function test_schwund_ohne_zeitraeume_bei_anzahl_null(): void
+    {
+        $this->schwundSzenario();
+
+        $this->assertSame([], $this->service()->schwundZeitraeume($this->bereich, 0));
+        $this->assertSame([], $this->service()->schwundZeitraeume($this->bereich, -3));
+        $this->assertSame([], (new AuszaehlungModel())->letzteMitZeitraum($this->bereich, 0));
+        $this->assertSame([], $this->service()->schwundArtikel($this->bereich, 0));
+    }
+
+    public function test_schwund_start_auszaehlung_regulaer_gezaehlt(): void
+    {
+        // Gegenprobe: dieselben Positionen in einer regulären ersten Auszählung zählen (Beginn inklusiv)
+        $a  = $this->artikelAnlegen(['name' => 'Helles', 'preis_cent' => 150]);
+        $z1 = $this->auszaehlungAnlegen('2026-09-10 12:00:00', 'abgeschlossen', 'getraenke', ['zeitraum_von' => '2026-09-01 00:00:00']);
+        $this->position($z1, $a, -3, 140, 10);
+        $this->bewegung($a, -1, '2026-09-01 00:00:00', 'schwund');
+
+        $zeitraum = $this->service()->schwundZeitraeume($this->bereich)[0];
+
+        $this->assertSame([1, 140, 3, 420, 40.0], [
+            $zeitraum['erfasst_menge'], $zeitraum['erfasst_cent'], $zeitraum['unerklaert_menge'], $zeitraum['unerklaert_cent'], $zeitraum['quote'],
+        ]);
     }
 
     public function test_schwund_zeitraeume_begrenzt_ohne_inklusiven_beginn(): void
@@ -447,14 +474,14 @@ final class StatistikServiceTest extends DbTestCase
     {
         $s = $this->schwundSzenario();
 
+        // Start-Zeitraum trägt nichts bei (weder Schwund noch verkauft)
         $this->assertSame([
-            ['artikel_id' => $s['a'], 'name' => 'Helles', 'erfasst_menge' => 4, 'unerklaert_menge' => 4, 'gesamt_cent' => 280 + 300 + 600, 'quote' => 16.0],
-            ['artikel_id' => $s['b'], 'name' => 'Pils', 'erfasst_menge' => 3, 'unerklaert_menge' => 0, 'gesamt_cent' => 380 + 200, 'quote' => 12.0],
-            ['artikel_id' => $s['d'], 'name' => 'Wasser', 'erfasst_menge' => 3, 'unerklaert_menge' => 0, 'gesamt_cent' => 300, 'quote' => null],
+            ['artikel_id' => $s['a'], 'name' => 'Helles (0,5 l)', 'erfasst_menge' => 2, 'unerklaert_menge' => 4, 'gesamt_cent' => 300 + 600, 'quote' => 15.0],
+            ['artikel_id' => $s['d'], 'name' => 'Wasser (0,5 l)', 'erfasst_menge' => 3, 'unerklaert_menge' => 0, 'gesamt_cent' => 300, 'quote' => null],
+            ['artikel_id' => $s['b'], 'name' => 'Pils (0,5 l)', 'erfasst_menge' => 1, 'unerklaert_menge' => 0, 'gesamt_cent' => 200, 'quote' => 5.0],
         ], $this->service()->schwundArtikel($this->bereich));
 
-        $this->assertSame([$s['a'], $s['b']], array_column($this->service()->schwundArtikel($this->bereich, 6, 2), 'artikel_id'));
-        // nur der letzte Zeitraum: Helles 300 + 600, Wasser 300, Pils 200
+        $this->assertSame([$s['a'], $s['d']], array_column($this->service()->schwundArtikel($this->bereich, 6, 2), 'artikel_id'));
         $this->assertSame([$s['a'], $s['d'], $s['b']], array_column($this->service()->schwundArtikel($this->bereich, 1), 'artikel_id'));
     }
 
@@ -475,7 +502,7 @@ final class StatistikServiceTest extends DbTestCase
 
         $this->assertSame([
             ['von' => '2026-09-10 12:00:00', 'bis' => '2026-10-01 18:00:00', 'erfasst_menge' => 2, 'unerklaert_menge' => 4, 'gesamt_cent' => 900],
-            ['von' => '2026-09-01 00:00:00', 'bis' => '2026-09-10 12:00:00', 'erfasst_menge' => 2, 'unerklaert_menge' => 0, 'gesamt_cent' => 280],
+            ['von' => '2026-09-01 00:00:00', 'bis' => '2026-09-10 12:00:00', 'erfasst_menge' => 0, 'unerklaert_menge' => 0, 'gesamt_cent' => 0],
         ], $this->service()->schwundArtikelVerlauf($this->bereich, $s['a']));
 
         $this->assertSame([], $this->service()->schwundArtikelVerlauf($this->bereich, $s['kiosk']));

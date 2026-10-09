@@ -73,10 +73,14 @@ class AuszaehlungModel extends Model
      */
     public function letzteMitZeitraum(int $bereichId, int $anzahl): array
     {
-        $zeilen = $this->abgeschlossenQuery($bereichId)->findAll(max(1, $anzahl) + 1);
+        if ($anzahl <= 0) {
+            return [];
+        }
+
+        $zeilen = $this->abgeschlossenQuery($bereichId)->findAll($anzahl + 1);
         $liste  = [];
 
-        foreach (array_slice($zeilen, 0, max(1, $anzahl)) as $i => $zeile) {
+        foreach (array_slice($zeilen, 0, $anzahl) as $i => $zeile) {
             $liste[] = $zeile + ['zeitraum' => self::zeitraum($zeile, ! isset($zeilen[$i + 1]))];
         }
 

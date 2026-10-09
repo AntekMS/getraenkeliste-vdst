@@ -79,7 +79,9 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   `schwundArtikelVerlauf(bereich, artikel, zeitraeume=6)` (bereichsfremder Artikel → `[]`), `schwundLaufend(bereich)` (Schwund-Bewegungen ab `zeitraeume()->beginn`, aktueller Preis). Gemeinsam über
   `schwundDaten` mit festen vier Abfragen (Auszählungen, Positionen, Bewegungen, Artikel). Zeitraum einer abgeschlossenen Auszählung **nur** über `AuszaehlungModel::zeitraum(auszaehlung, ersteAbgeschlossene)`
   ((`zeitraum_von`, `stichtag`], Beginn inklusiv nur bei der ersten; nutzt auch der Excel-Export) bzw. `letzteMitZeitraum(bereich, n)` (lädt n+1). Erfasst = Σ |Schwund-Bewegung| × `preis_cent` der Position
-  (ohne Position aktueller Preis); unerklärt/Überschuss = gespeicherte `differenz` × `preis_cent` der Positionen mit `start = 0`, bei `art = start` beides 0; Quote = (erfasst + unerklärt) ÷ Σ `verkauft` der Positionen.
+  (ohne Position aktueller Preis); unerklärt/Überschuss = gespeicherte `differenz` × `preis_cent` der Positionen mit `start = 0`; Quote = (erfasst + unerklärt) ÷ Σ `verkauft` der Positionen.
+  **Start-Auszählung (`art = start`, S3-R5):** alle Schwundwerte 0, Quote null, trägt auch zu `schwundArtikel`/`…Verlauf` nichts bei (weder Schwund noch verkauft). `anzahl ≤ 0` → `[]`.
+  Artikelnamen „Name (Einheit)“ wie in den Wochenreihen.
 - Stufe 2, reine Rechenklassen (statisch, ohne DB): `BestandRechner` (Bestand, Ampel negativ>leer>niedrig>ok),
   `AuszaehlungRechner` (Position/Soll/Differenz, `schwundCent` = positiver Betrag ohne Start-Positionen, `pruefeStichtag`),
   `Lieferumrechnung` (Kisten × Gebinde + Stück).
