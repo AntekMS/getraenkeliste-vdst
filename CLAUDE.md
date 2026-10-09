@@ -90,6 +90,10 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   Optionen aus `statistik()->ansichtOptionen(bereich)`; Tabelle Wochen × Reihen, laufende Woche „(bis heute)“; `<canvas class="js-diagramm" data-diagramm="…">` mit JSON `{labels, reihen}`
   via `esc(…, 'attr')` in einem `hidden`-Rahmen `.diagramm-rahmen` – Zeichnen erst Statistik Task 6), `lieferhistorie`. Feature-Tests: Testantworten sind DOM-serialisiert
   (Umlaute als Entities, Attribute ggf. in `'…'`) → Texte mit `html_entity_decode` vergleichen.
+- Statistik (Task 5, Seite „Schwund“): `GET wart/<bereich>/schwund` (`Wart\SchwundController`, View `wart/schwund`, `recht:statistik_ansehen@<bereich>`, Nav „Schwund“ zwischen Lieferung und Buchungen, keine `.btn-vdst`).
+  Abschnitte `kennzahlen` (letzter Zeitraum: erfasst €, unerklärt €, Überschuss klein, Quote mit Vergleich in Prozentpunkten, `bi-arrow-up` schlechter/rot, `bi-arrow-down` besser/grün, „—“ bei fehlender Quote;
+  Start-Auszählung: Nullwerte + „Start – noch kein Schwund auswertbar“), `verlauf` (Tabelle 6 Zeiträume, Diagramm-JSON `{typ: 'saeulen-gestapelt', labels, reihen: Erfasst/Unerklärt}` oldest first, Zeichnen Task 6),
+  `top-artikel` (Top 10 mit Link `?artikel=<id>`; `artikel` nur als Ziffernfolge, bereichsfremd/ungültig/Array → kein Verlauf), `laufend` (immer, auch im leeren Zustand mit Hinweis aus Spec 3.5).
 - Stufe 2, reine Rechenklassen (statisch, ohne DB): `BestandRechner` (Bestand, Ampel negativ>leer>niedrig>ok),
   `AuszaehlungRechner` (Position/Soll/Differenz, `schwundCent` = positiver Betrag ohne Start-Positionen, `pruefeStichtag`),
   `Lieferumrechnung` (Kisten × Gebinde + Stück).

@@ -91,6 +91,7 @@ foreach (['getraenke', 'kiosk'] as $bereich) {
         $statistik = ['filter' => ['angemeldet', 'recht:statistik_ansehen@' . $bereich]];
 
         $routes->get('einkauf', 'EinkaufController::index/' . $bereich, $statistik);
+        $routes->get('schwund', 'SchwundController::index/' . $bereich, $statistik);
         // Alte Bestandsseite (Stufe 2): dauerhaft auf „Einkauf“ umgeleitet.
         $routes->get('bestand', 'EinkaufController::bestand/' . $bereich, $statistik);
 
