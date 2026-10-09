@@ -246,7 +246,7 @@ $diagramm    = json_encode([
                 <tbody>
                     <?php foreach ($lieferungen as $lieferung): ?>
                         <tr>
-                            <td data-label="Datum"><?= esc(date('d.m.Y H:i', strtotime($lieferung['erfolgt_at']))) ?></td>
+                            <td data-label="Datum"><?= esc((new DateTimeImmutable($lieferung['erfolgt_at']))->format('d.m.Y H:i')) ?></td>
                             <td data-label="Artikel mit Menge">
                                 <?php foreach ($lieferung['zeilen'] as $z): ?>
                                     <div><?= esc($z['menge']) ?> × <?= esc($z['artikel']) ?></div>

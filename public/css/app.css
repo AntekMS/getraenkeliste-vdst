@@ -850,8 +850,9 @@ tfoot.table-light {
    Nutzung: <table class="table table-stack">, jede Zelle mit
    data-label="Spaltenname"; Aktions-Zelle mit .stack-actions.
    Summenzeile (tfoot) wird versteckt — stattdessen einmal
-   .summe-mobile (d-lg-none) unter der Tabelle rendern. */
-@media (max-width: 991.98px) {
+   .summe-mobile (d-lg-none) unter der Tabelle rendern.
+   Nur am Bildschirm: gedruckt bleiben es echte Tabellen. */
+@media screen and (max-width: 991.98px) {
     .table-stack thead {
         display: none;
     }
@@ -1204,18 +1205,27 @@ tfoot.table-light {
     }
 }
 
-/* Druck nur eines Bereichs (data-print-bereich, z. B. Bestellliste): app.js setzt .druck-auswahl am <html> und .druck-ziel am Element */
+/* Druck nur eines Bereichs (data-print-bereich, z. B. Bestellliste): app.js setzt .druck-auswahl am <html> und .druck-ziel am Element.
+   Alles außer dem Ziel, seinen Vorfahren und seinem Inhalt fällt mit display: none weg (keine leeren Folgeseiten);
+   die Vorfahren verlieren Abstände. visibility ist die Rückfallebene für Browser ohne :has(). */
 @media print {
     .druck-auswahl body {
         visibility: hidden;
     }
 
+    .druck-auswahl body *:not(.druck-ziel):not(.druck-ziel *):not(:has(.druck-ziel)) {
+        display: none !important;
+    }
+
+    .druck-auswahl body *:has(.druck-ziel) {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
     .druck-auswahl .druck-ziel {
         visibility: visible;
-        position: absolute;
-        top: 0;
-        left: 0;
         width: 100%;
+        margin: 0;
         border: 0;
         box-shadow: none;
     }

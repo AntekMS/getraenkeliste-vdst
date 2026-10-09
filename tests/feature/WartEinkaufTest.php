@@ -157,12 +157,28 @@ final class WartEinkaufTest extends DbTestCase
         $this->auszaehlungAnlegen('2026-09-20 18:00:00', werte: ['zeitraum_von' => '2026-09-01 00:00:00']);
         $this->auszaehlungAnlegen('2026-10-01 18:00:00', werte: ['zeitraum_von' => '2026-09-20 18:00:00']);
         $this->buchung($a, 3, (new PersonModel())->sammelkontoId('Bund'), '2026-09-25 10:00:00');
+        // Vorheriger Zeitraum (01.09. inkl. – 20.09. 18:00): Couleur 1 von 4 Stück = 25 %, Umsatz ebenso.
+        $this->buchung($a, 1, (new PersonModel())->sammelkontoId('Couleur'), '2026-09-01 00:00:00');
+        $this->buchung($a, 3, null, '2026-09-10 10:00:00');
 
         $anteile = $this->abschnitt($this->seite()->getBody(), 'anteile');
 
         $this->assertStringContainsString('Letzter abgeschlossener Zeitraum', $anteile);
         $this->assertStringContainsString('20.09.2026 – 01.10.2026', $anteile);
         $this->assertStringContainsString('100,0 %', $anteile);
+
+        $zeitraum = substr($anteile, (int) strpos($anteile, 'Letzter abgeschlossener Zeitraum'));
+        $this->assertMatchesRegularExpression('/Zeitraum davor:\s*Menge 25,0 % · Umsatz 25,0 %/', $zeitraum);
+        $this->assertMatchesRegularExpression('/Zeitraum davor:\s*Menge 75,0 % · Umsatz 75,0 %/', $zeitraum);
+        $this->assertMatchesRegularExpression('/Zeitraum davor:\s*Menge 0,0 % · Umsatz 0,0 %/', $zeitraum);
+    }
+
+    public function test_ohne_negativen_bestand_kein_hinweis(): void
+    {
+        $a = $this->artikelAnlegen();
+        $this->lieferung($a, 10);
+
+        $this->assertStringNotContainsString('Der Bestand ist negativ', $this->seite()->getBody());
     }
 
     public function test_frische_installation_ohne_daten(): void
@@ -246,7 +262,7 @@ final class WartEinkaufTest extends DbTestCase
         $body = $this->seite()->getBody();
 
         $this->assertSame(1, preg_match_all('/class="[^"]*\bbtn-vdst\b[^"]*"/', $body));
-        $this->assertStringContainsString('Lieferung erfassen', $body);
+        $this->assertMatchesRegularExpression('#<a class="btn btn-vdst" href="[^"]*/wart/getraenke/lieferung">\s*<i[^>]*></i> Lieferung erfassen#', $body);
         $this->assertStringContainsString('Schwund/Korrektur', $body);
         $this->assertStringContainsString('Bestellliste drucken', $body);
         $this->assertStringNotContainsString('style="', $body);
