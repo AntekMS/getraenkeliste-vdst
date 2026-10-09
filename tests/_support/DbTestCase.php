@@ -123,6 +123,15 @@ abstract class DbTestCase extends CIUnitTestCase
     }
 
     /**
+     * Setzt `inbetriebnahme_at` fest (die Migration schreibt sonst die echte aktuelle Zeit).
+     * Vor dem ersten Zugriff auf `service('einstellungen')` aufrufen (Cache je Request).
+     */
+    protected function inbetriebnahmeSetzen(string $zeit): void
+    {
+        db_connect()->table('einstellungen')->where('schluessel', 'inbetriebnahme_at')->update(['wert' => $zeit]);
+    }
+
+    /**
      * Shared Services (Uhr-Mock, Einstellungs-Cache) dürfen nicht in den nächsten Test lecken.
      */
     protected function tearDown(): void
