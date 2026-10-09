@@ -70,7 +70,7 @@ class BewegungenController extends BaseController
             return $zurueck->with('error', $e->getMessage())->with('fehler', $e->fehler);
         }
 
-        return redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/bestand'))
+        return redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/einkauf'))
             ->with('success', $anzahl === 1 ? 'Lieferung erfasst (1 Position).' : "Lieferung erfasst ({$anzahl} Positionen).");
     }
 
@@ -118,7 +118,7 @@ class BewegungenController extends BaseController
             return $zurueck->with('error', $e->getMessage())->with('fehler', $e->fehler);
         }
 
-        return redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/bestand'))->with('success', self::BEWEGUNGEN[$art] . ' erfasst.');
+        return redirect()->to(site_url('wart/' . $bereich['schluessel'] . '/einkauf'))->with('success', self::BEWEGUNGEN[$art] . ' erfasst.');
     }
 
     /**

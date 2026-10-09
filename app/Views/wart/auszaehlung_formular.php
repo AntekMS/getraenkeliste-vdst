@@ -34,7 +34,7 @@ $bestaetig = 'Auszählung jetzt abschließen? ' . ($summe['abweichend'] === 0
     <h1 class="h3 mb-0">Auszählung – <?= esc($bereich['name']) ?></h1>
     <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/auszaehlungen') ?>">Abgeschlossene Auszählungen</a>
-        <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/bestand') ?>">Zurück zum Bestand</a>
+        <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/einkauf') ?>">Zurück zum Einkauf</a>
     </div>
 </div>
 <p class="text-muted mb-3">Zähle, was wirklich da ist, und trag es hier ein. Mit „Abschließen“ wird der Zeitraum abgerechnet und die Excel für den Kassenwart erstellt.</p>

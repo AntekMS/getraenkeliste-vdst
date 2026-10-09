@@ -50,7 +50,7 @@ $zeile = static function (string|int $i, array $werte) use ($gruppen, $feld, $me
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <h1 class="h3 mb-0">Lieferung erfassen – <?= esc($bereich['name']) ?></h1>
-    <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/bestand') ?>">Zum Bestand</a>
+    <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/einkauf') ?>">Zum Einkauf</a>
 </div>
 
 <p class="text-muted">Menge = Kisten × Gebindegröße + Stück. Zeilen ohne Menge werden übersprungen; es wird alles oder nichts gespeichert.</p>

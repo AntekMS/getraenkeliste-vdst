@@ -44,7 +44,7 @@ final class WartBewegungenTest extends DbTestCase
             'bemerkung' => 'Getränkemarkt',
         ]);
 
-        $antwort->assertRedirectTo(site_url('wart/getraenke/bestand'));
+        $antwort->assertRedirectTo(site_url('wart/getraenke/einkauf'));
         $bew = $this->zeilen();
         $this->assertCount(1, $bew);
         $this->assertSame('lieferung', $bew[0]['art']);
@@ -100,7 +100,7 @@ final class WartBewegungenTest extends DbTestCase
         $this->sende('wart/getraenke/lieferung', ['zeilen' => [
             ['artikel_id' => '', 'kisten' => '', 'stueck' => '', 'einkaufspreis' => ''],
             ['artikel_id' => $a, 'kisten' => '', 'stueck' => '4', 'einkaufspreis' => ''],
-        ]])->assertRedirectTo(site_url('wart/getraenke/bestand'));
+        ]])->assertRedirectTo(site_url('wart/getraenke/einkauf'));
         $this->assertCount(1, $this->zeilen());
     }
 
@@ -135,7 +135,7 @@ final class WartBewegungenTest extends DbTestCase
         $a = $this->artikelAnlegen();
 
         $this->sende('wart/getraenke/bewegung', ['art' => 'schwund', 'artikel_id' => $a, 'menge' => '3', 'bemerkung' => 'Flasche zerbrochen'])
-            ->assertRedirectTo(site_url('wart/getraenke/bestand'));
+            ->assertRedirectTo(site_url('wart/getraenke/einkauf'));
 
         $bew = $this->zeilen();
         $this->assertSame('schwund', $bew[0]['art']);

@@ -38,8 +38,8 @@ $aktiv     = static fn (string $praefix): string => str_starts_with($pfad, $prae
 
         <?php if (\App\Libraries\Berechtigung::darf($rollen, \App\Libraries\Berechtigung::BESTAND_PFLEGEN, 'getraenke')): ?>
             <div class="app-nav-group">Getränkewart</div>
-            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/bestand') ?>" href="<?= base_url('wart/getraenke/bestand') ?>">
-                <i class="bi bi-boxes" aria-hidden="true"></i> Bestand
+            <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/einkauf') ?>" href="<?= base_url('wart/getraenke/einkauf') ?>">
+                <i class="bi bi-cart" aria-hidden="true"></i> Einkauf
             </a>
             <a class="app-nav-link app-nav-sub <?= $aktiv('wart/getraenke/lieferung') ?>" href="<?= base_url('wart/getraenke/lieferung') ?>">
                 <i class="bi bi-box-seam" aria-hidden="true"></i> Lieferung
@@ -121,7 +121,7 @@ $aktiv     = static fn (string $praefix): string => str_starts_with($pfad, $prae
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="<?= base_url('js/app.js') ?>?v=5"></script>
+<script src="<?= base_url('js/app.js') ?>?v=6"></script>
 <?= $this->renderSection('scripts') ?>
 </body>
 </html>

@@ -304,6 +304,21 @@ final class StatistikServiceTest extends DbTestCase
         }
     }
 
+    public function test_ansicht_optionen_nur_aktive_des_bereichs(): void
+    {
+        $hell = $this->artikelAnlegen(['name' => 'Helles', 'einheit' => '0,5 l']);
+        $this->artikelAnlegen(['name' => 'Pils', 'archiviert_at' => '2026-10-01 00:00:00']);
+        $bier = (int) (new ArtikelModel())->find($hell)['kategorie_id'];
+        $leer = (int) (new KategorieModel())->insert(['bereich_id' => $this->bereich, 'name' => 'Wein'], true);
+        (new KategorieModel())->insert(['bereich_id' => $this->bereich, 'name' => 'Alt', 'archiviert_at' => '2026-09-01 00:00:00']);
+        $this->artikelAnlegen(['name' => 'Riegel', 'kategorie_id' => $this->kioskKategorie()]);
+
+        $this->assertSame([
+            ['id' => $bier, 'name' => 'Bier', 'artikel' => [['id' => $hell, 'name' => 'Helles (0,5 l)']]],
+            ['id' => $leer, 'name' => 'Wein', 'artikel' => []],
+        ], $this->service()->ansichtOptionen($this->bereich));
+    }
+
     public function test_wochenverbrauch_leer(): void
     {
         $verlauf = $this->service()->wochenverbrauch($this->bereich, 'alle', 12);

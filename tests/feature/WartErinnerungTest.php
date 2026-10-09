@@ -29,7 +29,7 @@ final class WartErinnerungTest extends DbTestCase
         $this->inbetriebnahme('2026-09-01 08:00:00');
         $this->uhrStellen('2026-10-03 12:00:00');
 
-        $antwort = $this->alsAngemeldet($this->mitRolle('getraenkewart'))->get('wart/getraenke/bestand');
+        $antwort = $this->alsAngemeldet($this->mitRolle('getraenkewart'))->get('wart/getraenke/einkauf');
 
         $antwort->assertStatus(200);
         $antwort->assertSee('Es gab noch keine Auszählung.');
@@ -42,7 +42,7 @@ final class WartErinnerungTest extends DbTestCase
         $this->auszaehlungAnlegen('2026-09-01 10:00:00');
         $this->uhrStellen('2026-10-03 09:00:00');
 
-        $antwort = $this->alsAngemeldet($this->mitRolle('getraenkewart'))->get('wart/getraenke/bestand');
+        $antwort = $this->alsAngemeldet($this->mitRolle('getraenkewart'))->get('wart/getraenke/einkauf');
 
         $antwort->assertSee('Die letzte Auszählung ist 32 Tage her.');
     }
@@ -53,7 +53,7 @@ final class WartErinnerungTest extends DbTestCase
         $this->auszaehlungAnlegen('2026-09-02 10:00:00');
         $this->uhrStellen('2026-10-03 09:00:00'); // genau 31 Tage
 
-        $antwort = $this->alsAngemeldet($this->mitRolle('getraenkewart'))->get('wart/getraenke/bestand');
+        $antwort = $this->alsAngemeldet($this->mitRolle('getraenkewart'))->get('wart/getraenke/einkauf');
 
         $antwort->assertDontSee('Auszählung ist');
         $antwort->assertDontSee('Es gab noch keine Auszählung.');

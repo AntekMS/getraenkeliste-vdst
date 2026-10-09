@@ -159,6 +159,39 @@ class StatistikService
     }
 
     /**
+     * Auswahl für die Verlauf-Ansicht: nicht archivierte Kategorien des Bereichs mit ihren nicht archivierten Artikeln
+     * (Sortierung wie überall), eine Abfrage.
+     *
+     * @return list<array{id: int, name: string, artikel: list<array{id: int, name: string}>}>
+     */
+    public function ansichtOptionen(int $bereichId): array
+    {
+        $zeilen = db_connect()->table('kategorien k')
+            ->select('k.id AS kategorie_id, k.name AS kategorie_name, a.id AS artikel_id, a.name, a.einheit')
+            ->join('artikel a', 'a.kategorie_id = k.id AND a.archiviert_at IS NULL', 'left')
+            ->where('k.bereich_id', $bereichId)
+            ->where('k.archiviert_at', null)
+            ->orderBy('k.sortierung')->orderBy('k.id')->orderBy('a.sortierung')->orderBy('a.id')
+            ->get()->getResultArray();
+
+        $kategorien = [];
+
+        foreach ($zeilen as $z) {
+            $id = (int) $z['kategorie_id'];
+            $kategorien[$id] ??= ['id' => $id, 'name' => (string) $z['kategorie_name'], 'artikel' => []];
+
+            if ($z['artikel_id'] !== null) {
+                $kategorien[$id]['artikel'][] = [
+                    'id'   => (int) $z['artikel_id'],
+                    'name' => $z['einheit'] === '' ? (string) $z['name'] : "{$z['name']} ({$z['einheit']})",
+                ];
+            }
+        }
+
+        return array_values($kategorien);
+    }
+
+    /**
      * Letzte `$anzahl` Lieferungen (gruppiert nach `erfolgt_at` + erfasst von), neueste zuerst.
      *
      * @return list<array{erfolgt_at: string, erfasst_von: string, zeilen: list<array{artikel: string, menge: int, einkaufspreis_cent: ?int}>}>

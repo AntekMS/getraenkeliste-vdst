@@ -88,7 +88,12 @@ foreach (['getraenke', 'kiosk'] as $bereich) {
     $routes->group('wart/' . $bereich, ['namespace' => 'App\Controllers\Wart'], static function (RouteCollection $routes) use ($bereich): void {
         $filter = ['filter' => ['angemeldet', 'recht:bestand_pflegen@' . $bereich]];
 
-        $routes->get('bestand', 'BestandController::index/' . $bereich, $filter);
+        $statistik = ['filter' => ['angemeldet', 'recht:statistik_ansehen@' . $bereich]];
+
+        $routes->get('einkauf', 'EinkaufController::index/' . $bereich, $statistik);
+        // Alte Bestandsseite (Stufe 2): dauerhaft auf „Einkauf“ umgeleitet.
+        $routes->get('bestand', 'EinkaufController::bestand/' . $bereich, $statistik);
+
         $routes->get('lieferung', 'BewegungenController::lieferungForm/' . $bereich, $filter);
         $routes->post('lieferung', 'BewegungenController::lieferung/' . $bereich, $filter);
         $routes->get('bewegung', 'BewegungenController::bewegungForm/' . $bereich, $filter);

@@ -12,7 +12,7 @@ $artikel = (string) old('artikel_id', '');
 ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <h1 class="h3 mb-0">Schwund und Korrektur – <?= esc($bereich['name']) ?></h1>
-    <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/bestand') ?>">Zum Bestand</a>
+    <a class="btn btn-outline-vdst" href="<?= base_url('wart/' . $bereich['schluessel'] . '/einkauf') ?>">Zum Einkauf</a>
 </div>
 
 <form action="<?= base_url('wart/' . $bereich['schluessel'] . '/bewegung') ?>" method="post" class="mb-4">

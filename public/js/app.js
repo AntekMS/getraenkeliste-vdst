@@ -44,12 +44,23 @@ document.addEventListener('DOMContentLoaded', function () {
     syncThemeToggleIcons(document.documentElement.getAttribute('data-bs-theme'));
 });
 
-// Druck-Button (Opt-in über data-print), ohne Inline-Handler wegen CSP
+// Druck-Button (Opt-in über data-print), ohne Inline-Handler wegen CSP.
+// Optional data-print-bereich="<Selektor>": nur dieses Element drucken (Druck-CSS .druck-auswahl/.druck-ziel in app.css).
 document.addEventListener('click', function (event) {
     const button = event.target.closest('[data-print]');
-    if (button) {
-        window.print();
+    if (!button) {
+        return;
     }
+    const ziel = button.dataset.printBereich ? document.querySelector(button.dataset.printBereich) : null;
+    if (ziel) {
+        document.documentElement.classList.add('druck-auswahl');
+        ziel.classList.add('druck-ziel');
+        window.addEventListener('afterprint', function () {
+            document.documentElement.classList.remove('druck-auswahl');
+            ziel.classList.remove('druck-ziel');
+        }, { once: true });
+    }
+    window.print();
 });
 
 // Rückfrage vor folgenreichen Aktionen (Opt-in über data-confirm an Submit-Knopf oder Formular), ohne Inline-Handler wegen CSP

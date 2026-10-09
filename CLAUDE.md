@@ -82,6 +82,14 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   (ohne Position aktueller Preis); unerklärt/Überschuss = gespeicherte `differenz` × `preis_cent` der Positionen mit `start = 0`; Quote = (erfasst + unerklärt) ÷ Σ `verkauft` der Positionen.
   **Start-Auszählung (`art = start`, S3-R5):** alle Schwundwerte 0, Quote null, trägt auch zu `schwundArtikel`/`…Verlauf` nichts bei (weder Schwund noch verkauft). `anzahl ≤ 0` → `[]`.
   Artikelnamen „Name (Einheit)“ wie in den Wochenreihen.
+- Statistik (Task 4, Seite „Einkauf“): `GET wart/<bereich>/einkauf` (`Wart\EinkaufController`, View `wart/einkauf`, Filter `recht:statistik_ansehen@<bereich>`) ersetzt die Bestandsseite;
+  `GET …/bestand` leitet per 301 auf `einkauf` (gleicher Filter, inaktiver Bereich 404). Lieferung/Bewegung leiten nach `einkauf`, Auszählungsformular „Zurück zum Einkauf“.
+  Abschnitte als `<section>` mit Klassen `bestellliste` (nur Artikel mit Vorschlag, Druck-Button `data-print data-print-bereich=".bestellliste"`), `bestand-tabelle` (+ „Ø Verbrauch/Tag“,
+  „reicht noch ca.“: Bestand ≤ 0 → „leer“, kein Verbrauch → „—“), `anteile` (Kacheln „Letzte 28 Tage“ vs. 28 Tage davor und „Letzter abgeschlossener Zeitraum“ vs. vorherigen,
+  Grenzen aus `letzteMitZeitraum(bereich, 2)`; Prozente über `StatistikRechner::anteile`, ohne Umsatz „—“), `verlauf` (GET-Formular `ansicht`, nur skalar über `WartEingaben::text`,
+  Optionen aus `statistik()->ansichtOptionen(bereich)`; Tabelle Wochen × Reihen, laufende Woche „(bis heute)“; `<canvas class="js-diagramm" data-diagramm="…">` mit JSON `{labels, reihen}`
+  via `esc(…, 'attr')` in einem `hidden`-Rahmen `.diagramm-rahmen` – Zeichnen erst Statistik Task 6), `lieferhistorie`. Feature-Tests: Testantworten sind DOM-serialisiert
+  (Umlaute als Entities, Attribute ggf. in `'…'`) → Texte mit `html_entity_decode` vergleichen.
 - Stufe 2, reine Rechenklassen (statisch, ohne DB): `BestandRechner` (Bestand, Ampel negativ>leer>niedrig>ok),
   `AuszaehlungRechner` (Position/Soll/Differenz, `schwundCent` = positiver Betrag ohne Start-Positionen, `pruefeStichtag`),
   `Lieferumrechnung` (Kisten × Gebinde + Stück).
@@ -105,10 +113,10 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   `summeImZeitraum(konto, bereich, von exkl., bis inkl., vonInklusiv)`.
 - Wart-Bereich (Stufe 2, Task 4): Routen `wart/<bereich>/…` (Schleife über `getraenke`/`kiosk` in `Routes.php`, Namespace `App\Controllers\Wart`, Filter
   `angemeldet` + `recht:<aktion>@<bereich>`; `RechtFilter` trennt am ersten `@`, leerer Bereich → 403). Der Controller bekommt den Schlüssel als Argument und
-  liefert 404 für unbekannte/inaktive Bereiche (Kiosk bis Stufe 3; Getränkewart bekommt dort 403, Admin 404). `GET wart/<bereich>/bestand` (`BestandController`,
-  View `wart/bestand`, Ampel über `badge-status-*`). `Libraries/BestandService` (Service `bestand()`): `fuerBereich(bereichId)` (je Kategorie, nur `bestand_fuehren`
+  liefert 404 für unbekannte/inaktive Bereiche (Kiosk bis Stufe 3; Getränkewart bekommt dort 403, Admin 404). Die Bestandstabelle steht seit der Statistik (Task 4) auf der Seite „Einkauf“ (`GET wart/<bereich>/bestand` → 301 auf `einkauf`,
+  Ampel über `badge-status-*`). `Libraries/BestandService` (Service `bestand()`): `fuerBereich(bereichId)` (je Kategorie, nur `bestand_fuehren`
   und nicht archiviert) und `einzeln(artikelId)`; Bestand = Ist der letzten abgeschlossenen Position (sonst 0) + Bewegungen − nicht stornierte, **bestandswirksame** Buchungsmengen
-  (`bestandswirksam = 1`) im laufenden Zeitraum (`zeitraeume()`), über Aggregatabfragen. Navigation „Getränkewart“ nur mit `darf(…, bestand_pflegen, getraenke)`.
+  (`bestandswirksam = 1`) im laufenden Zeitraum (`zeitraeume()`), über Aggregatabfragen. Navigation „Getränkewart“ (Einkauf, Lieferung, Buchungen, Auszählung, Auszählungen) nur mit `darf(…, bestand_pflegen, getraenke)`.
 - Bewegungen (Stufe 2, Task 5): `GET/POST wart/<bereich>/lieferung` und `…/bewegung` (`Wart\BewegungenController`, Views `wart/lieferung`, `wart/bewegung`,
   `public/js/lieferung.js` für weitere Zeilen aus `<template>`). `BestandService::liefere` (Kisten × Gebinde + Stück, optional EK je Stück, alles oder nichts,
   Feldfehler `zeilen.<i>.<feld>`) und `bucheBewegung` (`schwund` positiv eingegeben → negativ gespeichert, `korrektur` ±, nie 0, Bemerkung Pflicht). Beide laufen
@@ -158,7 +166,7 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
   und `GET …/auszaehlungen/(:num)/download` mit `recht:auszaehlung_ansehen@<bereich>`, `POST …/auszaehlungen/(:num)/neu-erzeugen` mit `auszaehlung_durchfuehren`; Entwurf/fremder
   Bereich/unbekannt → 404; fehlende Datei → Redirect zur Liste mit Flash. Download = `response->download($pfad, null, true)->setFileName(basename)`. Rückfragen über
   `data-confirm` an Submit-Knopf oder Formular (`public/js/app.js`, delegiert, keine Inline-Handler; Cache-Buster siehe Task 10).
-- Wart-Bereich Überblick (Stufe 2 komplett): alle Routen `wart/<bereich>/…` — `bestand`, `lieferung`, `bewegung`, `buchungen` (+ `storno`, `korrektur`), `auszaehlung` (Entwurf/Abschluss),
+- Wart-Bereich Überblick (Stufe 2 komplett): alle Routen `wart/<bereich>/…` — `einkauf` (+ `bestand` → 301), `lieferung`, `bewegung`, `buchungen` (+ `storno`, `korrektur`), `auszaehlung` (Entwurf/Abschluss),
   `auszaehlungen` (Liste, `…/(:num)/download`, `…/neu-erzeugen`). Rechte nur über Filter `recht:<aktion>@<bereich>`; Zeiträume (`Zeitraeume`), Einfrieren und Bereichssperre
   gelten für Buchen, Storno, Bewegungen, Korrektur und Abschluss gleich. Exporte (`.xlsx`, `format_version getraenkeliste-auszaehlung/1`) liegen in `writable/exporte/`
   (im Backup enthalten, `datei_pfad` relativ), Download nur aus diesem Verzeichnis (`realpath`-Prüfung). Neue Wart-Routen ⇒ `ZugriffsschutzTest::ROUTEN` ergänzen.
@@ -167,7 +175,7 @@ Aufbau (Stufe 1 und 2 komplett, inkl. Artikelbilder):
 - Erinnerungsbanner (Stufe 2, Task 10): Partial `layouts/erinnerung.php` (in `layouts/main.php`, nicht in `einfach`/Tablet) ruft `Zeitraeume::erinnerungen(rollen)`:
   je **aktivem** Bereich mit Recht `auszaehlung_durchfuehren` und `tageSeitLetztemAbschluss` (volle Kalendertage ab Stichtag, sonst Inbetriebnahme, via `uhr`) > `erinnerung_tage`
   ein `.alert-warning` (ohne Auto-Dismiss) „Die letzte Auszählung ist <n> Tage her.“ bzw. „Es gab noch keine Auszählung.“ + Link `wart/<bereich>/auszaehlung`.
-  Ohne das Recht (Mitglieder) entsteht keine DB-Abfrage. `public/js/app.js`: `data-confirm`: Rückfrage im Klick, Knopfsperre (Spinner) erst im `submit`-Ereignis (`event.submitter`, nur wenn das Absenden weiterläuft, also nach der Browser-Validierung), `pageshow` mit `persisted` gibt gesperrte Knöpfe wieder frei; Cache-Buster `app.js?v=5` (in `layouts/main.php` und `einfach.php`).
+  Ohne das Recht (Mitglieder) entsteht keine DB-Abfrage. `public/js/app.js`: `data-confirm`: Rückfrage im Klick, Knopfsperre (Spinner) erst im `submit`-Ereignis (`event.submitter`, nur wenn das Absenden weiterläuft, also nach der Browser-Validierung), `pageshow` mit `persisted` gibt gesperrte Knöpfe wieder frei; Cache-Buster `app.js?v=6` (in `layouts/main.php` und `einfach.php`). `data-print` + optional `data-print-bereich="<Selektor>"`: setzt `.druck-auswahl` am `<html>` und `.druck-ziel` am Element (Druck-CSS in app.css druckt nur dieses), `afterprint` räumt auf.
 - Artikelbilder (Stufe 2, Task 11): `Libraries/Artikelbild` (Service `artikelbild()`, Konstruktor-Argument = Basisverzeichnis, Standard `WRITEPATH`, Dateien in
   `<basis>/artikelbilder/`; Tests injizieren ein Temp-Verzeichnis per `Services::injectMock`). `pruefe` (≤ 5 MB „Das Bild ist zu groß (max. 5 MB).“, Typ per `finfo`
   nur JPEG/PNG/WebP, `getimagesize` ≤ 8000 × 8000 und MIME muss passen, sonst „Bitte ein JPG-, PNG- oder WebP-Bild hochladen.“), `schreibe` (GD laden, `memory_limit` bei

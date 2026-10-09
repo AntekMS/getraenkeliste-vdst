@@ -1204,6 +1204,46 @@ tfoot.table-light {
     }
 }
 
+/* Druck nur eines Bereichs (data-print-bereich, z. B. Bestellliste): app.js setzt .druck-auswahl am <html> und .druck-ziel am Element */
+@media print {
+    .druck-auswahl body {
+        visibility: hidden;
+    }
+
+    .druck-auswahl .druck-ziel {
+        visibility: visible;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        border: 0;
+        box-shadow: none;
+    }
+}
+
+/* Einkauf: Anteil-Kacheln (Menge/Umsatz nebeneinander, Vergleich klein darunter) */
+.anteil-werte {
+    display: flex;
+    gap: 1.5rem;
+    margin: .25rem 0 .35rem;
+}
+
+.anteil-werte dt {
+    font-size: .78rem;
+    font-weight: 400;
+    color: var(--grau-600);
+}
+
+.anteil-werte dd {
+    margin: 0;
+}
+
+.anteil-vergleich {
+    font-size: .78rem;
+    color: var(--grau-600);
+    font-variant-numeric: tabular-nums;
+}
+
 /* Tablet (Querformat 1280x800): breite Seite, Namenskacheln, PIN-Tastatur */
 .login-breit .login-container {
     max-width: 1180px;
