@@ -16,6 +16,7 @@ final class WartBewegungenTest extends DbTestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->inbetriebnahmeSetzen('2026-10-01 00:00:00');
         $this->uhrStellen('2026-10-10 12:00:00');
         $this->wart = $this->personAnlegen();
         $this->rolleGeben($this->wart, 'getraenkewart');
