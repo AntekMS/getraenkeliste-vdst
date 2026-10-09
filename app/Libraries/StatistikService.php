@@ -22,13 +22,13 @@ class StatistikService
     private const FENSTER_TAGE = 28;
     private const MAX_WOCHEN   = 104;
 
-    /** Schwund-Werte eines Artikels (oder Zeitraums) vor der Quote. */
-    /** @var array<string, array<string, mixed>> Schwund-Rohwerte je (Bereich, Anzahl) für die Dauer der Instanz (ein Request) */
+    /** @var array<string, array<string, mixed>> Schwund-Rohwerte je (Bereich, Anzahl, Artikel) für die Dauer der Instanz (ein Request) */
     private array $schwundCache = [];
 
     /** @var array<string, int> */
     private array $sammelkonten = [];
 
+    /** Schwund-Werte eines Artikels (oder Zeitraums) vor der Quote. */
     private const SCHWUND_LEER = [
         'erfasst_menge' => 0, 'erfasst_cent' => 0, 'unerklaert_menge' => 0, 'unerklaert_cent' => 0,
         'ueberschuss_menge' => 0, 'ueberschuss_cent' => 0, 'verkauft' => 0,
