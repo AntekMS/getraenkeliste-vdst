@@ -212,6 +212,7 @@ Die Excel entsteht **nur aus gespeicherten Daten** und lässt sich daher jederze
 - Diagramme: Umsatz pro Woche/Monat, Top-10-Artikel, Verbrauch je Kategorie, Verteilung nach Wochentag, Schwund je Artikel.
 - **Bestellhilfe:** je Artikel „reicht noch ca. X Tage“ = aktueller Bestand ÷ durchschnittlicher Tagesverbrauch der letzten 28 Tage (kein Wert, wenn kein Verbrauch).
 - Keine Auswertung einzelner Personen.
+- Umgesetzt als Seiten „Einkauf“ und „Schwund“, Details in `docs/superpowers/specs/2026-10-07-statistik-getraenkewart-design.md`.
 
 ## 9. Fehlerbehandlung
 

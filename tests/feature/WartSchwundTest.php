@@ -201,4 +201,17 @@ final class WartSchwundTest extends DbTestCase
 
         $this->assertSame(404, $status);
     }
+
+    public function test_chartjs_und_diagrammtyp_auf_der_schwundseite(): void
+    {
+        $this->zweiZeitraeume();
+
+        $body = $this->seite()->getBody();
+
+        $this->assertStringContainsString('chart.js@4', $body);
+        $this->assertStringContainsString('js/statistik.js?v=1', $body);
+        $this->assertSame(1, preg_match('/data-diagramm=(["\'])(.*?)\1/s', $body, $treffer));
+        $daten = json_decode(html_entity_decode($treffer[2], ENT_QUOTES | ENT_HTML5), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('saeulen-gestapelt', $daten['typ']);
+    }
 }

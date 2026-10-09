@@ -20,6 +20,7 @@ $woche       = static fn (string $iso): string => 'KW ' . (int) substr($iso, str
 $wochen      = $verlauf['wochen'];
 $letzte      = array_key_last($wochen);
 $diagramm    = json_encode([
+    'typ'    => 'linie',
     'labels' => array_map($woche, $wochen),
     'reihen' => $verlauf['reihen'],
 ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
@@ -265,4 +266,9 @@ $diagramm    = json_encode([
         </div>
     <?php endif; ?>
 </section>
+<?= $this->endSection() ?>
+
+<?= $this->section('scripts') ?>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="<?= base_url('js/statistik.js') ?>?v=1"></script>
 <?= $this->endSection() ?>

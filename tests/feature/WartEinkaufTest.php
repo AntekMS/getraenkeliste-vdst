@@ -309,4 +309,29 @@ final class WartEinkaufTest extends DbTestCase
             $this->assertSame(404, $status, $pfad);
         }
     }
+
+    public function test_diagramm_json_ist_escapt_und_hat_typ_linie(): void
+    {
+        $a = $this->artikelAnlegen(['name' => 'Bier "Spezial" <b>']);
+        $this->buchung($a, 3);
+
+        $roh = $this->roh($this->seite('?ansicht=artikel:' . $a)->getBody(), 'verlauf');
+
+        $this->assertStringNotContainsString('<b>', $roh);
+        $this->assertSame(1, preg_match('/data-diagramm=(["\'])(.*?)\1/s', $roh, $treffer));
+        $daten = json_decode(html_entity_decode($treffer[2], ENT_QUOTES | ENT_HTML5), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('linie', $daten['typ']);
+        $this->assertStringStartsWith('Bier "Spezial" <b>', $daten['reihen'][0]['name']);
+    }
+
+    public function test_chartjs_und_statistik_js_nur_auf_den_statistikseiten(): void
+    {
+        $body = $this->seite()->getBody();
+        $this->assertStringContainsString('chart.js@4', $body);
+        $this->assertStringContainsString('js/statistik.js?v=1', $body);
+
+        $buchen = $this->alsAngemeldet($this->wart)->get('buchen')->getBody();
+        $this->assertStringNotContainsString('chart.js', $buchen);
+        $this->assertStringNotContainsString('statistik.js', $buchen);
+    }
 }

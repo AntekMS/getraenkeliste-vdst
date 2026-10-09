@@ -84,8 +84,9 @@ jede abgeschlossene Auszählung beendet einen Zeitraum und friert ihn ein.
 
 Menü „Getränkewart“ (Rolle `getraenkewart` bzw. Admin):
 
-- **Bestand** mit Ampel (ok / niedrig / leer / negativ), **Lieferung** erfassen (Kisten × Gebinde + Stück,
-  optional Einkaufspreis), **Schwund/Korrektur** als Bestandsbewegung mit Pflichtbemerkung.
+- **Einkauf** (Bestand mit Ampel, Bestellvorschlag mit Druckansicht, Reichweite, Anteile Mitglieder/Couleur/Bund, Verbrauchsverlauf als Diagramm), **Lieferung** erfassen (Kisten × Gebinde + Stück,
+  optional Einkaufspreis), **Schwund/Korrektur** als Bestandsbewegung mit Pflichtbemerkung; die Seite **Schwund** wertet den
+  Schwund je Auszählungszeitraum aus (erfasst, unerklärt, Quote, Top-Artikel, Diagramm).
 - **Buchungen** des laufenden Zeitraums einsehen, stornieren (Grund Pflicht, keine Frist) und Korrekturbuchungen anlegen.
   Eine Korrektur ändert standardmäßig nur den Betrag des Kontos; mit dem Haken „Ware wurde tatsächlich entnommen bzw.
   zurückgegeben“ zählt sie auch für Bestand und Auszählung.

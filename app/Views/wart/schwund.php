@@ -161,3 +161,8 @@ $z       = $k['zeitraum'] ?? null;
     <p class="mb-0">Seit dem letzten Abschluss bereits erfasst: <?= esc($laufend['menge']) ?> Stück / <?= esc(formatiere_cent($laufend['cent'])) ?></p>
 </section>
 <?= $this->endSection() ?>
+
+<?= $this->section('scripts') ?>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="<?= base_url('js/statistik.js') ?>?v=1"></script>
+<?= $this->endSection() ?>

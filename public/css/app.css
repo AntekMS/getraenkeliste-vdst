@@ -1349,3 +1349,17 @@ button.namen-kachel:focus-visible {
     gap: 1rem;
     margin-bottom: 1rem;
 }
+
+/* Statistik-Diagramme (Chart.js): feste Höhe, Zeichenfläche füllt den Rahmen */
+.diagramm-rahmen {
+    position: relative;
+    height: 320px;
+}
+.diagramm-rahmen[hidden] {
+    display: none;
+}
+@media print {
+    .diagramm-rahmen {
+        display: none;
+    }
+}
